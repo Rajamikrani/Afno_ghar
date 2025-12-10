@@ -82,6 +82,7 @@ userSchema.methods.generateAccessToken = function () {
     )
 }
 
+// to genereate Refresh Token
 userSchema.methods.generateRefreshToken = function () {
     jwt.sign(
         {
