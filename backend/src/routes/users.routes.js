@@ -11,6 +11,10 @@ router.route("/register").post(
     registerUser);
 
 router.route("/login").post(loginUser);
+// Secure route to logout user
 router.route("/logout").post(verifyJWT , logoutUser);
+// Secure route to refresh access token
+router.route("/refresh-token").post(refreshAccessToken);
+
 
 export default router;
