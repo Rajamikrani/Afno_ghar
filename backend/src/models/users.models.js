@@ -49,6 +49,18 @@ const userSchema = new Schema({
     refreshToken : {
         type : String
     } , 
+    address : {
+        country : {
+            type : String ,
+            required : true
+        },
+        state : {
+            type : String ,
+        } ,
+        city : {
+            type : String
+        }
+    },
     hostListingCount: { type: Number, default: 0 },
     hostAvgRating: { type: Number, default: 0 }
     
@@ -73,7 +85,8 @@ userSchema.methods.generateAccessToken = function () {
             _id : this._id ,
             email : this.email ,
             username : this.username ,
-            fullname : this.fullname
+            fullname : this.fullname ,
+            role : this.role 
         } ,
             process.env.ACCESS_TOKEN_SECRET ,
             {
@@ -86,7 +99,7 @@ userSchema.methods.generateAccessToken = function () {
 userSchema.methods.generateRefreshToken = function () {
     return jwt.sign(
         {
-            _id : this._id 
+            _id : this._id ,
         } ,
             process.env.REFRESH_TOKEN_SECRET ,
             {
