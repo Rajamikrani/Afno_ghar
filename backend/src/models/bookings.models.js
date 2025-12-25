@@ -11,6 +11,17 @@ const bookingSchema = new Schema({
         enum: ["pending", "confirmed", "cancelled"],
         default: "pending"
     },
+     guests: {
+        adults: Number,
+        children: Number,
+        infants: Number
+    },
+     pricing: {
+        nightlyPrice: Number,
+        serviceFee: Number,
+        cleaningFee: Number,
+        totalPrice: Number
+  },
 } , {timestamps : true});
 
 export const Booking = mongoose.model("Booking", bookingSchema);

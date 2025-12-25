@@ -10,6 +10,7 @@ const options = {
     httpOnly : true ,
     secure : true
 }
+
 // controller for register user
 const registerUser = asyncHandler(async(req , res) => {
     // get user detail from frontend
@@ -76,6 +77,7 @@ const registerUser = asyncHandler(async(req , res) => {
         new ApiResponse(201 , createdUser , "User registered successfully.")
     )
 })
+
 // function to generate access and refresh token
 const generateAccessAndRefreshToken = async (userId) => {
 try {
@@ -92,6 +94,7 @@ try {
     throw new ApiError(500 , "Something went wrong while generating access and refresh token.");
 }
 }
+
 // controller for login user
 const loginUser = asyncHandler(async (req , res) => {
     // req.body -> data
@@ -128,6 +131,7 @@ const loginUser = asyncHandler(async (req , res) => {
         refreshToken
     } , "User LoggedIn Successfully."))
 })
+
 // controller for logout user
 const logoutUser = asyncHandler(async (req , res) => {
     // find the user by id and update the refreshToken to undefined
@@ -148,8 +152,8 @@ const logoutUser = asyncHandler(async (req , res) => {
     .clearCookie("accessToken"  , options)
     .clearCookie("refreshToken"  , options)
     .json(new ApiResponse(200 , {} , "User Logged out Successfully."));
-
 })
+
 // controller for refresh access token
 const refreshAccessToken = asyncHandler(async (req , res) => {
     const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken;
@@ -215,6 +219,7 @@ const getCurrentUser = asyncHandler(async (req , res) => {
         , "Current user retrived Successfully.")
     )
 })
+
 // controller to update user details.
 const updateUserDetials = asyncHandler(async (req , res) => {
     // req.body => email and fullname
@@ -280,8 +285,6 @@ const getAllUsers = asyncHandler(async (req , res) => {
     const users = await User.find().select("-password -refreshToken")
     return res.status(200).json(new ApiResponse(200 , users , "All user fetched Successfully."))
 })
-
-
 
 export {
     registerUser ,

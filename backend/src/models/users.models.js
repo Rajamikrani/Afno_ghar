@@ -61,6 +61,7 @@ const userSchema = new Schema({
             type : String
         }
     },
+    languages: [{ type: mongoose.Schema.Types.ObjectId, ref: "Language" }],
     hostListingCount: { type: Number, default: 0 },
     hostAvgRating: { type: Number, default: 0 }
     

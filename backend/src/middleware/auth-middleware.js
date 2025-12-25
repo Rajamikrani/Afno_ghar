@@ -28,4 +28,16 @@ const verifyJWT = asyncHandler(async(req , _ , next) => {
   }
 })
 
-export default verifyJWT;
+const verifyAdmin = asyncHandler(async (req, res, next) => {
+    // Check if user exists (from verifyJWT middleware)
+    if (!req.user) {
+        throw new ApiError(401, "Unauthorized request");
+    }
+    // Check if user has admin role
+    if (req.user.role !== "admin") {
+        throw new ApiError(403, "Access denied. Admin privileges required.");
+    }
+    next();
+});
+
+export {verifyJWT , verifyAdmin}

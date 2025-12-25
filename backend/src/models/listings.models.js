@@ -17,8 +17,8 @@ const listingSchema = new Schema(
             type : mongoose.Schema.Types.ObjectId ,
             ref : "User"
         },
-        price: { type: Number, required: true  , default : 500},
-        price_bucket: { type: Number }, // 1=Low, 2=Medium, 3=High (used in cosine similarity)
+        price: { type : Number, required: true  , default : 500},
+        price_bucket: { type: Number  , default : 1}, // 1=Low, 2=Medium, 3=High (used in cosine similarity)
         images : [{
             type : String ,
             required : true
@@ -41,12 +41,11 @@ const listingSchema = new Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Amenity"
         }],
-
         maxGuests: Number,
         bedrooms: Number,
         beds: Number,
         bathrooms: Number,
-
+        isGuestFavourite: { type: Boolean, default: false },
         tags: [{ type: String }], 
 
         averageRating: {
