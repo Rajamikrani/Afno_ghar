@@ -42,10 +42,10 @@ const userSchema = new Schema({
         default : "guest" ,
         required : true
     },
-    wishlist : {
+    wishlist : [{
         type : mongoose.Schema.Types.ObjectId ,
         ref : "wishlist"
-    } ,
+    }] ,
     refreshToken : {
         type : String
     } , 
@@ -65,7 +65,7 @@ const userSchema = new Schema({
     hostListingCount: { type: Number, default: 0 },
     hostAvgRating: { type: Number, default: 0 }
     
-} , {timeStamps : true})
+} , {timestamps : true})
 
 // if the users register then it encrypt the password before storing the data into database.
 userSchema.pre("save" , async function () {

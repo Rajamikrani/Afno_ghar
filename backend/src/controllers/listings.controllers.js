@@ -1,174 +1,460 @@
 import { Listing } from "../models/listings.models.js";
 import { Amenity } from "../models/aminities.models.js";
-import {asyncHandler} from "../utils/asyncHandler.js";
+import { Booking } from "../models/bookings.models.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import { uploadCloudinary } from "../utils/cloudinary.js";
+import { uploadCloudinary, deleteFromCloudinary } from "../utils/cloudinary.js";
+import Category from "../models/categories.model.js";
+import User from "../models/users.models.js";
+import mongoose from "mongoose";
+import {
+    calculateCosineSimilarity,
+    listingToVector,
+    findSimilarListings,
+} from "../utils/CosineSimilarity.js";
 
-// Create Listings
-const createListing = asyncHandler(async (req , res) => {
-    // Extract listing data from request body
-    const {
-        title,
-        description,
-        price,
-        category,
-        location,
-        amenities,
-        maxGuests,
-        bedrooms,
-        beds,
-        bathrooms,
-        tags
-    } = req.body;
+// ─────────────────────────────────────────────────────────────
+//  Helper — normalize role to array
+//  Works whether role is stored as String or [String]
+// ─────────────────────────────────────────────────────────────
+const getRoles = (user) => [user?.role].filter(Boolean);
+/* ── getAllListings — public feed, only approved listings ── */
+const getAllListings = asyncHandler(async (req, res) => {
+  const {
+    city, country, minPrice, maxPrice, category,
+    page = 1, limit = 12, host,
+  } = req.query;
 
-    // Validate required fields
-    if (!title || !description || !price || !category) {
-        throw new ApiError(400, "Title, description, price, and category are required");
-    }
+// To this — treats missing status as approved:
+const filter = {
+  $or: [
+    { status: "approved" },
+    { status: { $exists: false } },
+    { status: null }
+  ]
+};
+ // ← only approved shown publicly
 
-// Step 1: Parse amenities (from form-data)
-const parsedAmenities =
-  typeof amenities === "string" ? JSON.parse(amenities) : amenities;
+  if (city)     filter["location.city"]    = new RegExp(city, "i");
+  if (country)  filter["location.country"] = new RegExp(country, "i");
+  if (category) filter.category            = category;
+  if (host)     filter.host                = host;
+  if (minPrice || maxPrice) {
+    filter.price = {};
+    if (minPrice) filter.price.$gte = Number(minPrice);
+    if (maxPrice) filter.price.$lte = Number(maxPrice);
+  }
 
-// Step 2: Validate it's an array
-if (!Array.isArray(parsedAmenities)) {
-  throw new ApiError(400, "Amenities must be an array of IDs");
-}
+  const skip     = (Number(page) - 1) * Number(limit);
+  const listings = await Listing.find(filter)
+    .populate("host",     "fullname avatar")
+    .populate("category", "name icon")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
 
-// Step 3: Validate IDs exist and are active
-const validAmenities = await Amenity.find({
-  _id: { $in: parsedAmenities },
-  isActive: true
+  const total = await Listing.countDocuments(filter);
+
+  return res.status(200).json(
+    new ApiResponse(200, { listings, total, page: Number(page) }, "Listings fetched.")
+  );
 });
 
-// Step 4: Compare lengths correctly
-if (validAmenities.length !== parsedAmenities.length) {
-  const validIds = validAmenities.map(a => a._id.toString());
-  const invalidIds = parsedAmenities.filter(id => !validIds.includes(id));
-  return res.status(400).json({
-    success: false,
-    message: 'Some amenities are invalid',
-    invalidAmenities: invalidIds // ← shows exactly which IDs are invalid
+/* ── getMyListings — host sees ALL their own listings (any status) ── */
+const getMyListings = asyncHandler(async (req, res) => {
+  const listings = await Listing.find({ host: req.user._id })
+    .populate("category", "name icon")
+    .sort({ createdAt: -1 });
+
+  return res.status(200).json(
+    new ApiResponse(200, listings, "Your listings fetched.")
+  );
+});
+
+/* ── getListingById — guests only see approved; host always sees own ── */
+const getListingById = asyncHandler(async (req, res) => {
+  const { listingId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(listingId))
+    throw new ApiError(400, "Invalid listing ID.");
+
+  const listing = await Listing.findById(listingId)
+    .populate("host",      "fullname avatar bio")
+    .populate("category",  "name icon")
+    .populate("amenities", "name icon category");
+
+  if (!listing) throw new ApiError(404, "Listing not found.");
+
+  // Host can always see their own listing regardless of status
+  const isOwner = req.user && String(listing.host._id) === String(req.user._id);
+  const isAdmin = req.user?.role === "admin";
+
+  if (!isOwner && !isAdmin && listing.status !== "approved") {
+    throw new ApiError(404, "Listing not found.");
+  }
+
+  return res.status(200).json(
+    new ApiResponse(200, listing, "Listing fetched.")
+  );
+});
+
+/* ── createListing — always starts as pending ── */
+const createListing = asyncHandler(async (req, res) => {
+  const {
+    title, description, price, category,
+    maxGuests, bedrooms, beds, bathrooms,
+    cleaningFee, weeklyDiscount, monthlyDiscount,
+    tags, isGuestFavourite,
+  } = req.body;
+
+  if (!title || !description || !price || !category)
+    throw new ApiError(400, "Title, description, price and category are required.");
+
+  const location  = typeof req.body.location  === "string" ? JSON.parse(req.body.location)  : req.body.location;
+  const amenities = typeof req.body.amenities === "string" ? JSON.parse(req.body.amenities) : req.body.amenities;
+
+  if (!location?.coordinates?.lat || !location?.coordinates?.lng)
+    throw new ApiError(400, "Location coordinates are required.");
+
+  const files = req.files || [];
+  if (!files.length) throw new ApiError(400, "At least one image is required.");
+
+  const uploadedImages = await Promise.all(
+    files.map(f => uploadCloudinary(f.path).then(r => r.secure_url))
+  );
+
+  const listing = await Listing.create({
+    title, description, price: Number(price),
+    host:     req.user._id,
+    category,
+    location,
+    amenities: amenities || [],
+    images:    uploadedImages,
+    maxGuests: Number(maxGuests) || 1,
+    bedrooms:  Number(bedrooms)  || 1,
+    beds:      Number(beds)      || 1,
+    bathrooms: Number(bathrooms) || 1,
+    cleaningFee:      Number(cleaningFee)      || 0,
+    weeklyDiscount:   Number(weeklyDiscount)   || 0,
+    monthlyDiscount:  Number(monthlyDiscount)  || 0,
+    tags:             tags || [],
+    isGuestFavourite: isGuestFavourite || false,
+    status: "pending", // ← always starts pending
   });
-}
 
-        
+  return res.status(201).json(
+    new ApiResponse(201, listing, "Listing created and submitted for admin approval.")
+  );
+});
 
-    // Parse location if it's a string
-    const parsedLocation = typeof location === 'string' ? JSON.parse(location) : location;
+/* ── updateListingStatus — admin only ── */
+const updateListingStatus = asyncHandler(async (req, res) => {
+  const { listingId } = req.params;
+  const { status, adminNote } = req.body;
 
-    // Validate location coordinates
-    if (!parsedLocation?.coordinates || !Array.isArray(parsedLocation.coordinates) || parsedLocation.coordinates.length !== 2) {
-        throw new ApiError(400, "Valid location coordinates [longitude, latitude] are required");
+  const VALID = ["approved", "rejected", "inactive", "pending"];
+  if (!VALID.includes(status))
+    throw new ApiError(400, `Status must be one of: ${VALID.join(", ")}`);
+
+  if (!mongoose.Types.ObjectId.isValid(listingId))
+    throw new ApiError(400, "Invalid listing ID.");
+
+  const listing = await Listing.findByIdAndUpdate(
+    listingId,
+    {
+      $set: {
+        status,
+        adminNote:  adminNote || "",
+        reviewedBy: req.user._id,
+        reviewedAt: new Date(),
+      },
+    },
+    { new: true }
+  ).populate("host", "fullname email");
+
+  if (!listing) throw new ApiError(404, "Listing not found.");
+
+  return res.status(200).json(
+    new ApiResponse(200, listing, `Listing ${status} successfully.`)
+  );
+});
+
+/* ── adminGetAllListings — admin sees everything regardless of status ── */
+const adminGetAllListings = asyncHandler(async (req, res) => {
+  const { status, page = 1, limit = 20 } = req.query;
+  const filter = status ? { status } : {};
+  const skip   = (Number(page) - 1) * Number(limit);
+
+  const listings = await Listing.find(filter)
+    .populate("host",     "fullname email avatar")
+    .populate("category", "name icon")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
+
+  const total = await Listing.countDocuments(filter);
+
+  return res.status(200).json(
+    new ApiResponse(200, { listings, total }, "All listings fetched.")
+  );
+});
+
+/* ── deleteListing ── */
+const deleteListing = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const listing = await Listing.findById(id);
+  if (!listing) throw new ApiError(404, "Listing not found.");
+
+  const isOwner = String(listing.host) === String(req.user._id);
+  const isAdmin = req.user.role === "admin";
+
+  if (!isOwner && !isAdmin)
+    throw new ApiError(403, "You are not authorised to delete this listing.");
+
+  await Listing.findByIdAndDelete(id);
+
+  return res.status(200).json(
+    new ApiResponse(200, null, "Listing deleted successfully.")
+  );
+});
+
+/* ── updateListing ── */
+const updateListing = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  const listing = await Listing.findById(id);
+  if (!listing) throw new ApiError(404, "Listing not found.");
+
+  if (String(listing.host) !== String(req.user._id))
+    throw new ApiError(403, "You are not authorised to update this listing.");
+
+  const updates = { ...req.body };
+
+  // When host edits a listing, reset to pending for re-approval
+  updates.status     = "pending";
+  updates.adminNote  = "";
+  updates.reviewedBy = null;
+  updates.reviewedAt = null;
+
+  if (req.files?.length) {
+    const uploadedImages = await Promise.all(
+      req.files.map(f => uploadCloudinary(f.path).then(r => r.secure_url))
+    );
+    updates.images = uploadedImages;
+  }
+
+  const updated = await Listing.findByIdAndUpdate(
+    id, { $set: updates }, { new: true }
+  );
+
+  return res.status(200).json(
+    new ApiResponse(200, updated, "Listing updated and resubmitted for approval.")
+  );
+});
+// ─────────────────────────────────────────────────────────────
+//  Search Listings (public)
+// ─────────────────────────────────────────────────────────────
+const searchListings = asyncHandler(async (req, res) => {
+    const { query, minPrice, maxPrice, guests, category } = req.query;
+
+    const andConditions = [];
+
+    // Global search (flexible)
+    if (query && query.trim() !== "") {
+        const regex = new RegExp(query.trim(), "i");
+        andConditions.push({
+            $or: [
+                { title: regex },
+                { description: regex },
+                { tags: regex },
+                { "location.city": regex },
+                { "location.state": regex },
+                { "location.country": regex },
+            ],
+        });
     }
 
-    // Validate category
-    const validCategories = ["apartment", "villa", "farmhouse", "studio", "shared-room", "treehouse"];
-    if (!validCategories.includes(category)) {
-        throw new ApiError(400, "Invalid category");
+    // Category filter
+    if (category && category.trim() !== "") {
+        const categoryDocs = await Category.find({
+            name: { $regex: category.trim(), $options: "i" },
+            isActive: true,
+        });
+
+        const categoryIds = categoryDocs.map((c) => c._id);
+        andConditions.push({ category: { $in: categoryIds } });
     }
 
-    // Handle image uploads - Multer stores files in req.files when using .array()
-    let imageUrls = [];
-    
-    console.log("req.files:", req.files); // Debug log
-    
-    if (req.files && req.files.length > 0) {
-        // Upload each image to cloudinary
-        for (const imageFile of req.files) {
-            const uploadedImage = await uploadCloudinary(imageFile.path);
-            if (uploadedImage) {
-                imageUrls.push(uploadedImage.url);
-            }
-        }
-
-        if (imageUrls.length === 0) {
-            throw new ApiError(400, "Failed to upload images");
-        }
-    } else {
-        throw new ApiError(400, "At least one image is required");
+    // Price filter
+    if (minPrice || maxPrice) {
+        const priceFilter = {};
+        if (minPrice) priceFilter.$gte = Number(minPrice);
+        if (maxPrice) priceFilter.$lte = Number(maxPrice);
+        andConditions.push({ price: priceFilter });
     }
 
-    // Calculate price bucket
-    // let priceBucket;
-    // if (price < 100) {
-    //     priceBucket = 1;
-    // } else if (price <= 300) {
-    //     priceBucket = 2;
-    // } else {
-    //     priceBucket = 3;
-    // }
-
-    // Parse arrays if they're strings
-    // const parsedAmenities = typeof amenities === 'string' ? JSON.parse(amenities) : amenities;
-    // const parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
-
-    // Create listing
-    const listing = await Listing.create({
-        title : title,
-        description : description,
-        host: req.user._id,
-        price: Number(price),
-        // price_bucket: priceBucket,
-        images: imageUrls,
-        category,
-        location: {
-            street: parsedLocation.street,
-            city: parsedLocation.city,
-            state: parsedLocation.state,
-            country: parsedLocation.country,
-            zipCode: parsedLocation.zipCode,
-            coordinates: parsedLocation.coordinates.map(Number)
-        },
-        amenities: parsedAmenities || [],
-        maxGuests: maxGuests ? Number(maxGuests) : 1,
-        bedrooms: bedrooms ? Number(bedrooms) : 1,
-        beds: beds ? Number(beds) : 1,
-        bathrooms: bathrooms ? Number(bathrooms) : 1,
-        // tags: parsedTags || []
-    });
-
-    if (!listing) {
-        throw new ApiError(500, "Failed to create listing");
+    // Guests filter
+    if (guests && Number(guests) > 0) {
+        andConditions.push({ maxGuests: { $gte: Number(guests) } });
     }
 
-    // Populate host details
-    const createdListing = await Listing.findById(listing._id)
-        .populate("host", "fullName email avatar")
-        .populate("amenities" , "name icon isActive category")
-   
+    const filter = andConditions.length > 0 ? { $and: andConditions } : {};
 
-    return res.status(201).json(
-        new ApiResponse(201, createdListing, "Listing created successfully")
+    console.log("Final Filter:", JSON.stringify(filter, null, 2));
+
+    const listings = await Listing.find(filter)
+        .populate("amenities", "name icon")
+        .populate("category", "name")
+        .populate("host", "fullName avatar email");
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, listings, "Search results"));
+});
+
+// ─────────────────────────────────────────────────────────────
+//  Get Similar Listings (cosine similarity)
+// ─────────────────────────────────────────────────────────────
+const getSimilarListings = asyncHandler(async (req, res) => {
+    const { listingId } = req.params;
+    const { limit = 5 } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(listingId)) {
+        throw new ApiError(400, "Invalid listing ID");
+    }
+
+    const targetListing = await Listing.findById(listingId)
+        .populate("amenities")
+        .populate("category");
+
+    if (!targetListing) {
+        throw new ApiError(404, "Listing not found");
+    }
+
+    const allAmenities = await Amenity.find({ isActive: true });
+
+    const minPrice = targetListing.price * 0.6;
+    const maxPrice = targetListing.price * 1.4;
+
+    const candidateListings = await Listing.find({
+        _id: { $ne: listingId },
+        price: { $gte: minPrice, $lte: maxPrice },
+    })
+        .populate("amenities")
+        .populate("category")
+        .populate("host", "fullName email avatar");
+
+    const similarListings = findSimilarListings(
+        targetListing,
+        candidateListings,
+        allAmenities,
+        parseInt(limit)
+    );
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            similarListings.map((item) => ({
+                ...item.listing.toObject(),
+                similarityScore: Number(item.similarityScore.toFixed(4)),
+            })),
+            "Similar listings retrieved successfully"
+        )
     );
 });
 
-// Get listings
-const getAllListings = asyncHandler(async (req , res) => {
-    const allListing = await Listing.find();
-    return res.status(200)
-    .json(new ApiResponse(200 , allListing , "All Listing fetched Successfully."));
-})
+// ─────────────────────────────────────────────────────────────
+//  Get Personalized Recommendations
+// ─────────────────────────────────────────────────────────────
+const getRecommendations = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    console.log(userId)
+    const { limit = 10 } = req.query;
 
-// Update listings
-const updateListing = asyncHandler(async (req , res) => {
-    const {
-        title,
-        description,
-        price,
-        category,
-        location,
-        amenities,
-        maxGuests,
-        bedrooms,
-        beds,
-        bathrooms,
-        tags
-    } = req.body;
+    const userBookings = await Booking.find({ user: userId })
+        .populate({
+            path: "listing",
+            populate: ["amenities", "category"],
+        })
+        .sort({ createdAt: -1 })
+        .limit(3);
+
+    if (!userBookings.length) {
+        const fallback = await Listing.find()
+            .sort({ averageRating: -1 })
+            .limit(parseInt(limit))
+            .populate("amenities")
+            .populate("category")
+            .populate("host", "fullName email avatar");
+
+        return res
+            .status(200)
+            .json(new ApiResponse(200, fallback, "Popular listings"));
+    }
+
+    const referenceListings = userBookings.map((b) => b.listing);
+    const referenceLocation =
+        referenceListings[0]?.location?.coordinates || null;
+    const avgPrice =
+        referenceListings.reduce((sum, l) => sum + l.price, 0) /
+        referenceListings.length;
+
+    const allAmenities = await Amenity.find({ isActive: true });
+
+    const candidates = await Listing.find({
+        _id: { $nin: referenceListings.map((l) => l._id) },
+    })
+        .populate("amenities")
+        .populate("category")
+        .populate("host", "fullName email avatar");
+
+    const recommendations = candidates
+        .map((listing) => {
+            const vector = listingToVector(
+                listing,
+                allAmenities,
+                referenceLocation,
+                avgPrice
+            );
+
+            const refVector = listingToVector(
+                referenceListings[0],
+                allAmenities,
+                referenceLocation,
+                avgPrice
+            );
+
+            const similarity = calculateCosineSimilarity(refVector, vector);
+
+            return { listing, similarityScore: similarity };
+        })
+        .sort((a, b) => b.similarityScore - a.similarityScore)
+        .slice(0, parseInt(limit));
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            recommendations.map((item) => ({
+                ...item.listing.toObject(),
+                similarityScore: Number(item.similarityScore.toFixed(4)),
+            })),
+            "Personalized recommendations"
+        )
+    );
 });
 
-export { 
-    createListing ,
-    getAllListings ,
+export {
+    createListing,
+    updateListing,
+    deleteListing,
+    getAllListings,
+    getMyListings,
+    getListingById,
+    searchListings,
+    getSimilarListings,
+    getRecommendations ,
+    updateListingStatus ,
+    adminGetAllListings
 };

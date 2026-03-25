@@ -3,41 +3,84 @@ import { ApiError } from "../utils/ApiError.js";
 import jwt from "jsonwebtoken";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
-const verifyJWT = asyncHandler(async(req , _ , next) => {
-  try {
-    // get the token from cookie or reader
-      const token = req.cookies?.accessToken || req.header("Authorization").replace("Bearer " , "");
-    // check the token is avaliable or not
-      if (!token) {
-          throw new ApiError("Unauthorized Token.");
-      }
-    // decode the token using jwt verify method
-      const decodedToken = jwt.verify(token , process.env.ACCESS_TOKEN_SECRET);
-    // find the user with help of decodedToken to retrive the id that want to logout  
-      const user = await User.findById(decodedToken?._id).select("-password -refreshToken");
-    // check for authorization of the user
-      if (!user) {
-          throw new ApiError(401 , "Invalid User Autherization.");
-      }
-    // pass the data (accessToken) of user to the req.user
-      req.user = user;
-    // call the next function that is the flag to say that hey my work is done
-      next();
-  } catch (error) {
-    throw new ApiError(400 , "Unauthorized User.");
-  }
-})
+// ─────────────────────────────────────────────
+//  Core JWT verifier — always runs first
+// ─────────────────────────────────────────────
+const verifyJWT = asyncHandler(async (req, _, next) => {
+    try {
+        const token =
+            req.cookies?.accessToken ||
+            req.header("Authorization")?.replace("Bearer ", "");
 
-const verifyAdmin = asyncHandler(async (req, res, next) => {
-    // Check if user exists (from verifyJWT middleware)
-    if (!req.user) {
-        throw new ApiError(401, "Unauthorized request");
+        if (!token) {
+            throw new ApiError(401, "Unauthorized: No token provided.");
+        }
+
+        const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+
+        const user = await User.findById(decodedToken?._id).select(
+            "-password -refreshToken"
+        );
+
+        if (!user) {
+            throw new ApiError(401, "Invalid User Authorization.");
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        throw new ApiError(401, error?.message || "Unauthorized User.");
     }
-    // Check if user has admin role
-    if (req.user.role !== "admin") {
+});
+
+// ─────────────────────────────────────────────
+//  Admin check — role must include "admin"
+// ─────────────────────────────────────────────
+const verifyAdmin = asyncHandler(async (req, res, next) => {
+    if (!req.user) {
+        throw new ApiError(401, "Unauthorized request.");
+    }
+
+    const roles = Array.isArray(req.user.role)
+        ? req.user.role
+        : [req.user.role];
+
+    if (!roles.includes("admin")) {
         throw new ApiError(403, "Access denied. Admin privileges required.");
+    }
+
+    next();
+});
+
+// ─────────────────────────────────────────────
+//  Host check — role must include "host"
+//  ✅ Also allows users with ["guest","host"] (dual-role)
+// ─────────────────────────────────────────────
+const verifyHost = asyncHandler(async (req, res, next) => {
+    if (!req.user) {
+        throw new ApiError(401, "Unauthorized request.");
+    }
+
+    const roles = Array.isArray(req.user.role)
+        ? req.user.role
+        : [req.user.role];
+
+    if (!roles.includes("host") && !roles.includes("admin")) {
+        throw new ApiError(403, "Access denied. Host privileges required.");
+    }
+
+    next();
+});
+
+// ─────────────────────────────────────────────
+//  Logged-in check only — any authenticated user
+//  Use this on createListing so guests can also list
+// ─────────────────────────────────────────────
+const verifyLoggedIn = asyncHandler(async (req, res, next) => {
+    if (!req.user) {
+        throw new ApiError(401, "You must be logged in.");
     }
     next();
 });
 
-export {verifyJWT , verifyAdmin}
+export { verifyJWT, verifyAdmin, verifyHost, verifyLoggedIn };
