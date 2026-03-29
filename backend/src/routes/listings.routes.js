@@ -11,7 +11,7 @@ import {
 const router = Router();
 
 // ── Specific named routes FIRST ─────────────────────────────────────
-router.get("/all-listings",       getAllListings);              // public, approved only
+router.get("/",       getAllListings);              // public, approved only
 router.get("/admin/all",          verifyJWT, verifyAdmin, adminGetAllListings); // admin, all statuses
 router.get("/my-listings",        verifyJWT, getMyListings);   // host, all their own
 router.get("/recommendations",    verifyJWT, getRecommendations);
