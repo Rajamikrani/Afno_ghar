@@ -40,7 +40,7 @@ API.interceptors.response.use(
 /* ══════════════════════════════════════════════════════════════════════
    LISTINGS
 ══════════════════════════════════════════════════════════════════════ */
-export const fetchListings        = ()               => API.get("/listings/all-listings");
+export const fetchListings        = ()               => API.get("/listings/");
 export const fetchListingById     = (id)             => API.get(`/listings/${id}`);
 export const fetchSimilarListings = (id, limit = 4)  => API.get(`/listings/similar/${id}?limit=${limit}`);
 export const fetchRecommendations = ()               => API.get("/listings/recommendations");
