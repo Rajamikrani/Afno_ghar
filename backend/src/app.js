@@ -6,10 +6,10 @@ const app = express();
 
 app.use(cors({
     credentials : true ,
-      origin: [
-    "http://localhost:5173",
-    "https://afno-ghar-frontend.onrender.com"
-  ],
+    origin: [
+      "https://afno-ghar-frontend.onrender.com", // deployed frontend
+      "http://localhost:5173"                     // for local dev
+    ]
 }))
 app.use((req, res, next) => {
   console.log("📥 REQUEST:", req.method, req.url);
