@@ -14,7 +14,9 @@ import {
   getCurrentUser, logoutUser, updateUserDetails, updateUserAvatar,
   changePassword, getMyBookings, getMyListings,
   getHostBookingRequests, updateBookingStatus, cancelBooking,
-  fetchListingReviews, createReview, deleteReview, updateReview 
+  fetchListingReviews, createReview, deleteReview, updateReview,
+  /* FIX: import deleteListing which was previously missing */
+  deleteListing,
 } from '../service/api';
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -36,15 +38,6 @@ const RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
 
 /* ─────────────────────────────────────────────────────────────────────
    ATTACH REVIEWS TO BOOKINGS
-   Fetches Review documents for each listing and merges:
-     • guestReview  — review written by the booking's guest (b.user)
-     • hostReview   — review written by the listing owner (b.listingOwner)
-   Both are needed because:
-     - In myBookings  (guest view): we show guestReview (did I review?)
-     - In hostBookings (host view): we show BOTH — guestReview (what
-       the guest wrote about the property) AND hostReview (what the
-       host wrote about the guest, stored against the same listing
-       but authored by listingOwner).
 ───────────────────────────────────────────────────────────────────── */
 const attachReviewsToBookings = async (bookings, currentUserId = null) => {
   if (!bookings.length) return bookings;
@@ -54,7 +47,6 @@ const attachReviewsToBookings = async (bookings, currentUserId = null) => {
   );
   if (!eligible.length) return bookings;
 
-  // Deduplicate listing IDs from eligible bookings only
   const listingIds = [...new Set(eligible.map(b => String(b.listing?._id || b.listing)))];
 
   const reviewFetches = listingIds.map(lid =>
@@ -70,14 +62,10 @@ const attachReviewsToBookings = async (bookings, currentUserId = null) => {
     const lid     = String(b.listing?._id || b.listing);
     const reviews = reviewMap[lid] || [];
 
-    // IDs of the two parties on this booking
-    const guestId = String(b.user?._id          || b.user);
-    const hostId  = String(b.listingOwner?._id  || b.listingOwner);
+    const guestId = String(b.user?._id         || b.user);
+    const hostId  = String(b.listingOwner?._id || b.listingOwner);
 
-    // guestReview: written by the guest about the property
     const gr = reviews.find(r => String(r.user?._id || r.user) === guestId);
-    // hostReview: written by the host/listingOwner about the property
-    // (host reviews the listing on behalf of the guest interaction)
     const hr = reviews.find(r => String(r.user?._id || r.user) === hostId);
 
     return {
@@ -248,8 +236,7 @@ function AlreadyReviewedDialog({ open, onClose, onEdit, existingReview, isHost }
 }
 
 /* ─────────────────────────────────────────────────────────────────────
-   REVIEW WRITE / EDIT MODAL  (used from Trips / Requests tabs)
-   Now calls createReview which acts as upsert on the backend.
+   REVIEW WRITE / EDIT MODAL
 ───────────────────────────────────────────────────────────────────── */
 function ReviewWriteModal({ open, onClose, booking, isHost, onSubmitted, showToast }) {
   const [rating, setRating]   = useState(0);
@@ -457,6 +444,7 @@ function BookingDetailModal({ booking, open, onClose, isHost, onConfirm, onRejec
               </button>
             </div>
           )}
+          {/* FIX: was onCancel={() => {}} for host, now properly wired */}
           {!isHost && (booking.status === 'pending' || (booking.status === 'confirmed' && !isPast)) && (
             <button onClick={() => onCancel(booking._id)} disabled={!!actionLoading}
               className="w-full py-3 border border-red-300 text-red-500 font-semibold rounded-xl hover:bg-red-50 transition disabled:opacity-50 flex items-center justify-center gap-2">
@@ -523,14 +511,12 @@ const StatCard = ({ label, value, sub, icon: Icon, color = 'rose', delay = 0 }) 
 };
 
 /* ═══════════════════════════════════════════════════════════════════
-   INLINE REVIEW MODAL  (used inside ReviewsTab)
-   createReview acts as upsert — no need to call updateReview separately.
+   INLINE REVIEW MODAL
 ═══════════════════════════════════════════════════════════════════ */
 function InlineReviewModal({ open, onClose, booking, isHost, onSubmitted, showToast }) {
   const [rating,  setRating]  = useState(0);
   const [comment, setComment] = useState('');
   const [saving,  setSaving]  = useState(false);
-
   const [alreadyOpen, setAlreadyOpen] = useState(false);
   const [editMode,    setEditMode]    = useState(false);
 
@@ -576,7 +562,6 @@ function InlineReviewModal({ open, onClose, booking, isHost, onSubmitted, showTo
 
     setSaving(true);
     try {
-      // createReview is now an upsert on the backend
       const res   = await createReview(listingId, { rating, review: comment.trim() });
       const saved = res.data?.data;
       onSubmitted(booking._id, { _id: saved?._id, rating, review: comment.trim() }, isHost);
@@ -861,15 +846,12 @@ function ReviewsTab({ myBookings, hostBookings, showToast, onReviewUpdated, onRe
 
   const openWrite = (booking) => { setWriteTarget(booking); setWriteOpen(true); };
 
-  /* ── DELETE REVIEW ── */
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
       const { bookingId, reviewId, key } = deleteTarget;
-      if (reviewId) {
-        await deleteReview(reviewId);
-      }
+      if (reviewId) await deleteReview(reviewId);
       onReviewDeleted(bookingId, key === 'hostReview');
       showToast('Review deleted', 'success');
       setDeleteTarget(null);
@@ -900,7 +882,6 @@ function ReviewsTab({ myBookings, hostBookings, showToast, onReviewUpdated, onRe
         ))}
       </div>
 
-      {/* View tabs */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-1.5 flex gap-1 overflow-x-auto">
         {[
           { id: 'my-stays', label: 'My stay reviews',           Icon: Star,          count: completedGuestBookings.length,
@@ -927,7 +908,6 @@ function ReviewsTab({ myBookings, hostBookings, showToast, onReviewUpdated, onRe
       </div>
 
       <div className="flex gap-5 flex-col lg:flex-row">
-        {/* Sidebar analytics */}
         <div className="lg:w-64 shrink-0 space-y-4">
           {!isReceived && written.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -1011,7 +991,6 @@ function ReviewsTab({ myBookings, hostBookings, showToast, onReviewUpdated, onRe
           )}
         </div>
 
-        {/* Main content */}
         <div className="flex-1 min-w-0 space-y-4">
           <div className="flex flex-wrap gap-3">
             <div className="relative flex-1 min-w-48">
@@ -1208,7 +1187,6 @@ function ReviewsTab({ myBookings, hostBookings, showToast, onReviewUpdated, onRe
                         </div>
                       </div>
 
-                      {/* Action row */}
                       {!isReceived && (
                         <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50 gap-2 flex-wrap">
                           <p className="text-xs text-gray-400">
@@ -1293,7 +1271,6 @@ export default function HostPanel() {
   const [reviewTarget, setReviewTarget] = useState(null);
   const [reviewOpen,   setReviewOpen]   = useState(false);
 
-  // Delete review from outside ReviewsTab (e.g. BookingDetailModal)
   const [globalDeleteTarget, setGlobalDeleteTarget] = useState(null);
   const [globalDeleting,     setGlobalDeleting]     = useState(false);
 
@@ -1304,7 +1281,6 @@ export default function HostPanel() {
     setReviewOpen(true);
   };
 
-  /* Patches booking arrays when a review is written/updated */
   const handleReviewUpdated = useCallback((bookingId, reviewData, isHostReviewing) => {
     const payload = reviewData
       ? { _id: reviewData._id, rating: reviewData.rating, review: reviewData.review, createdAt: new Date().toISOString() }
@@ -1316,7 +1292,6 @@ export default function HostPanel() {
     setHostBookings(prev => prev.map(patch));
   }, []);
 
-  /* Patches booking arrays when a review is deleted */
   const handleReviewDeleted = useCallback((bookingId, isHostReviewing) => {
     const patch = bk => bk._id === bookingId
       ? { ...bk, [isHostReviewing ? 'hostReview' : 'guestReview']: null }
@@ -1325,7 +1300,6 @@ export default function HostPanel() {
     setHostBookings(prev => prev.map(patch));
   }, []);
 
-  /* Global delete handler (called from BookingDetailModal) */
   const handleGlobalDeleteReview = (bookingId, reviewId, isHostReviewing) => {
     setGlobalDeleteTarget({ bookingId, reviewId, isHostReviewing });
   };
@@ -1353,7 +1327,12 @@ export default function HostPanel() {
     getMyListings()
       .then(r => {
         const d = r.data?.data || [];
-        setMyListings(d.map(l => ({ ...l, images: Array.isArray(l.images) ? l.images.flatMap(img => img?.includes(',') ? img.split(',') : [img]) : [] })));
+        setMyListings(d.map(l => ({
+          ...l,
+          images: Array.isArray(l.images)
+            ? l.images.flatMap(img => img?.includes(',') ? img.split(',') : [img])
+            : [],
+        })));
       })
       .catch(() => showToast('Failed to load listings', 'error'))
       .finally(() => setLoadingListings(false));
@@ -1388,7 +1367,6 @@ export default function HostPanel() {
 
   useEffect(() => { loadListings(); loadBookings(); loadHostBookings(); }, []);
 
-  /* Sync on tab visibility change */
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
@@ -1400,18 +1378,21 @@ export default function HostPanel() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
-  /* Sync on custom review event from other pages */
   useEffect(() => {
     const onReview = () => { loadBookings(); loadHostBookings(); };
     window.addEventListener('reviewSubmitted', onReview);
     return () => window.removeEventListener('reviewSubmitted', onReview);
   }, []);
 
+  /* FIX: was commented out — now calls real deleteListing API */
   const handleDeleteListing = async (id) => {
     try {
-      // deleteListing(id) — import if needed
-      showToast('Listing deleted', 'success'); loadListings();
-    } catch { showToast('Failed to delete listing', 'error'); }
+      await deleteListing(id);
+      showToast('Listing deleted', 'success');
+      loadListings();
+    } catch (err) {
+      showToast(err?.response?.data?.message || 'Failed to delete listing', 'error');
+    }
   };
 
   const handleConfirm = async (bookingId, closeModal) => {
@@ -1450,7 +1431,9 @@ export default function HostPanel() {
   const confirmedBookings = myBookings.filter(b => b.status === 'confirmed');
   const pendingRequests   = hostBookings.filter(b => b.status === 'pending');
   const totalRevenue      = confirmedBookings.reduce((s, b) => s + (b.totalPrice || 0), 0);
-  const avgRating         = myListings.length ? (myListings.reduce((s, l) => s + (l.averageRating || 0), 0) / myListings.length).toFixed(1) : '—';
+  const avgRating         = myListings.length
+    ? (myListings.reduce((s, l) => s + (l.averageRating || 0), 0) / myListings.length).toFixed(1)
+    : '—';
 
   const pendingGuestReviews = myBookings.filter(b => b.status === 'confirmed' && new Date(b.checkOut) < new Date() && !b.guestReview).length;
   const pendingHostReviews  = hostBookings.filter(b => b.status === 'confirmed' && new Date(b.checkOut) < new Date() && !b.hostReview).length;
@@ -1584,7 +1567,6 @@ export default function HostPanel() {
         </main>
       </div>
 
-      {/* Global write modal (Trips / Requests tabs) */}
       <ReviewWriteModal
         open={reviewOpen}
         onClose={() => setReviewOpen(false)}
@@ -1594,7 +1576,6 @@ export default function HostPanel() {
         showToast={showToast}
       />
 
-      {/* Global delete confirm (from BookingDetailModal or Trips/Requests) */}
       <ConfirmDialog
         open={!!globalDeleteTarget}
         onClose={() => setGlobalDeleteTarget(null)}
@@ -1875,8 +1856,11 @@ function BookingRequestsTab({ bookings, loading, onRefresh, onConfirm, onReject,
           })}
         </div>
       )}
+      {/* FIX: onCancel wired to onReject for host context */}
       <BookingDetailModal booking={selected} open={detailOpen} onClose={()=>setDetailOpen(false)}
-        isHost onConfirm={(id)=>onConfirm(id,()=>setDetailOpen(false))} onReject={(id)=>onReject(id,()=>setDetailOpen(false))} onCancel={()=>{}}
+        isHost onConfirm={(id)=>onConfirm(id,()=>setDetailOpen(false))}
+        onReject={(id)=>onReject(id,()=>setDetailOpen(false))}
+        onCancel={(id)=>onReject(id,()=>setDetailOpen(false))}
         actionLoading={actionLoading} onOpenReview={onOpenReview} onDeleteReview={onDeleteReview}/>
     </div>
   );
@@ -2006,7 +1990,6 @@ function TripsTab({ bookings, loading, navigate, onCancel, actionLoading, showTo
                                     <Stars rating={booking.guestReview.rating} size="w-3 h-3"/>
                                   </div>
                                 </div>
-                                {/* Edit + Delete buttons */}
                                 <div className="flex gap-1.5 shrink-0">
                                   <button onClick={()=>onOpenReview(booking,false)} title="Edit review"
                                     className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 rounded-lg transition border border-amber-200">
@@ -2066,14 +2049,26 @@ function TripsTab({ bookings, loading, navigate, onCancel, actionLoading, showTo
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   LISTINGS TAB
+   LISTINGS TAB  — FIX: Edit button now navigates to /edit-listing/:id
 ═══════════════════════════════════════════════════════════════════ */
 function ListingsTab({ listings, loading, onDelete, onRefresh, navigate }) {
   const [search,    setSearch]    = useState('');
   const [deleting,  setDeleting]  = useState(null);
   const [confirmId, setConfirmId] = useState(null);
-  const filtered = listings.filter(l=>!search.trim()||l.title?.toLowerCase().includes(search.toLowerCase())||l.location?.city?.toLowerCase().includes(search.toLowerCase()));
-  const handleDelete = async (id) => { setDeleting(id); await onDelete(id); setDeleting(null); setConfirmId(null); };
+
+  const filtered = listings.filter(l =>
+    !search.trim() ||
+    l.title?.toLowerCase().includes(search.toLowerCase()) ||
+    l.location?.city?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  /* FIX: actually awaits the API call */
+  const handleDelete = async (id) => {
+    setDeleting(id);
+    await onDelete(id);
+    setDeleting(null);
+    setConfirmId(null);
+  };
 
   return (
     <div className="tab-content space-y-5">
@@ -2087,11 +2082,14 @@ function ListingsTab({ listings, loading, onDelete, onRefresh, navigate }) {
           <button onClick={()=>navigate('/list-your-home')} className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-500 text-white text-sm font-semibold rounded-full hover:bg-rose-600 transition shadow-md shadow-rose-100"><Plus className="w-4 h-4"/>New listing</button>
         </div>
       </div>
+
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"/>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search your listings…" className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-sm"/>
-        {search&&<button onClick={()=>setSearch('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400"><X className="w-4 h-4"/></button>}
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search your listings…"
+          className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-sm"/>
+        {search && <button onClick={()=>setSearch('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400"><X className="w-4 h-4"/></button>}
       </div>
+
       {loading ? (
         <div className="grid gap-4">{[...Array(3)].map((_,i)=><div key={i} className="bg-white rounded-2xl p-5 animate-pulse flex gap-4"><div className="w-28 h-24 bg-gray-200 rounded-xl shrink-0"/><div className="flex-1 space-y-3"><div className="h-4 bg-gray-200 rounded w-1/2"/><div className="h-3 bg-gray-100 rounded w-1/3"/></div></div>)}</div>
       ) : filtered.length === 0 ? (
@@ -2102,11 +2100,13 @@ function ListingsTab({ listings, loading, onDelete, onRefresh, navigate }) {
         </div>
       ) : (
         <div className="grid gap-4">
-          {filtered.map(listing=>(
+          {filtered.map(listing => (
             <div key={listing._id} className="card-hover bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="flex flex-col sm:flex-row">
                 <div className="sm:w-40 h-40 sm:h-auto bg-gray-100 shrink-0">
-                  {listing.images[0]?<img src={listing.images[0]} alt={listing.title} className="w-full h-full object-cover"/>:<div className="w-full h-full flex items-center justify-center"><Home className="w-8 h-8 text-gray-300"/></div>}
+                  {listing.images[0]
+                    ? <img src={listing.images[0]} alt={listing.title} className="w-full h-full object-cover"/>
+                    : <div className="w-full h-full flex items-center justify-center"><Home className="w-8 h-8 text-gray-300"/></div>}
                 </div>
                 <div className="flex-1 p-5 flex flex-col justify-between min-w-0">
                   <div>
@@ -2115,26 +2115,26 @@ function ListingsTab({ listings, loading, onDelete, onRefresh, navigate }) {
                         <h3 className="font-semibold text-gray-900 truncate" style={{fontFamily:"'Fraunces', serif"}}>{listing.title}</h3>
                         <p className="text-xs text-gray-400 flex items-center gap-1 mt-1"><MapPin className="w-3 h-3"/>{listing.location?.city}, {listing.location?.country}</p>
                       </div>
-  
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${
-  listing.status === "approved"  ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-  listing.status === "rejected"  ? "bg-red-50 text-red-600 border-red-200" :
-  listing.status === "inactive"  ? "bg-gray-100 text-gray-400 border-gray-200" :
-                                   "bg-amber-50 text-amber-700 border-amber-200"
-}`}>
-  {listing.status === "approved"  && <CheckCircle className="w-3 h-3" />}
-  {listing.status === "pending"   && <Clock className="w-3 h-3" />}
-  {listing.status === "rejected"  && <XCircle className="w-3 h-3" />}
-  {listing.status}
-</span>
-{/* Show admin rejection note if present */}
-{listing.status === "rejected" && listing.adminNote && (
-  <p className="text-xs text-red-500 mt-1 flex items-start gap-1">
-    <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
-    {listing.adminNote}
-  </p>
-)}
+                        listing.status === 'approved'  ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        listing.status === 'rejected'  ? 'bg-red-50 text-red-600 border-red-200' :
+                        listing.status === 'inactive'  ? 'bg-gray-100 text-gray-400 border-gray-200' :
+                                                         'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {listing.status === 'approved'  && <CheckCircle className="w-3 h-3" />}
+                        {listing.status === 'pending'   && <Clock className="w-3 h-3" />}
+                        {listing.status === 'rejected'  && <XCircle className="w-3 h-3" />}
+                        {listing.status}
+                      </span>
                     </div>
+
+                    {/* Admin rejection note */}
+                    {listing.status === 'rejected' && listing.adminNote && (
+                      <p className="text-xs text-red-500 mt-1.5 flex items-start gap-1">
+                        <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />{listing.adminNote}
+                      </p>
+                    )}
+
                     <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-400">
                       <span className="flex items-center gap-1"><Users className="w-3 h-3"/>{listing.maxGuests} guests</span>
                       <span className="flex items-center gap-1"><Bed className="w-3 h-3"/>{listing.bedrooms} bed</span>
@@ -2142,13 +2142,24 @@ function ListingsTab({ listings, loading, onDelete, onRefresh, navigate }) {
                       {listing.averageRating>0&&<span className="flex items-center gap-1"><Star className="w-3 h-3 fill-amber-400 text-amber-400"/>{Number(listing.averageRating).toFixed(1)} ({listing.numberOfRatings})</span>}
                     </div>
                   </div>
+
                   <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-50 gap-2 flex-wrap">
                     <p className="font-bold text-gray-900">${listing.price}<span className="text-xs text-gray-400 font-normal ml-1">/ night</span></p>
                     <div className="flex gap-2">
-                      <button onClick={()=>navigate(`/listing/${listing._id}`)} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-gray-200 text-gray-600 hover:border-rose-300 hover:text-rose-500 transition flex items-center gap-1"><ExternalLink className="w-3 h-3"/>View</button>
-                      <button onClick={()=>navigate(`/edit-listing/${listing._id}`)} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-500 transition flex items-center gap-1"><Edit2 className="w-3 h-3"/>Edit</button>
-                      <button onClick={()=>setConfirmId(listing._id)} disabled={deleting===listing._id} className="px-3 py-1.5 text-xs font-semibold rounded-full border border-red-200 text-red-500 hover:bg-red-50 transition disabled:opacity-40 flex items-center gap-1">
-                        {deleting===listing._id?<><RefreshCw className="w-3 h-3 animate-spin"/>Deleting…</>:<><Trash2 className="w-3 h-3"/>Delete</>}
+                      <button onClick={()=>navigate(`/listing/${listing._id}`)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-full border border-gray-200 text-gray-600 hover:border-rose-300 hover:text-rose-500 transition flex items-center gap-1">
+                        <ExternalLink className="w-3 h-3"/>View
+                      </button>
+                      {/* FIX: navigates to /edit-listing/:id — matches App.jsx route */}
+                      <button onClick={()=>navigate(`/edit-listing/${listing._id}`)}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-full border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-500 transition flex items-center gap-1">
+                        <Edit2 className="w-3 h-3"/>Edit
+                      </button>
+                      <button onClick={()=>setConfirmId(listing._id)} disabled={deleting===listing._id}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-full border border-red-200 text-red-500 hover:bg-red-50 transition disabled:opacity-40 flex items-center gap-1">
+                        {deleting===listing._id
+                          ? <><RefreshCw className="w-3 h-3 animate-spin"/>Deleting…</>
+                          : <><Trash2 className="w-3 h-3"/>Delete</>}
                       </button>
                     </div>
                   </div>
@@ -2158,8 +2169,17 @@ function ListingsTab({ listings, loading, onDelete, onRefresh, navigate }) {
           ))}
         </div>
       )}
-      <ConfirmDialog open={!!confirmId} onClose={()=>setConfirmId(null)} onConfirm={()=>handleDelete(confirmId)}
-        title="Delete this listing?" message="This action cannot be undone." confirmLabel="Delete listing" danger loading={!!deleting}/>
+
+      <ConfirmDialog
+        open={!!confirmId}
+        onClose={()=>setConfirmId(null)}
+        onConfirm={()=>handleDelete(confirmId)}
+        title="Delete this listing?"
+        message="This action cannot be undone. All bookings associated with this listing may be affected."
+        confirmLabel="Delete listing"
+        danger
+        loading={!!deleting}
+      />
     </div>
   );
 }
@@ -2175,41 +2195,74 @@ function ProfileTab({ user, onUpdate, showToast }) {
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef();
 
-  useEffect(() => { if (user) setForm({ fullname: user.fullname||'', email: user.email||'', bio: user.bio||'' }); }, [user]);
+  useEffect(() => {
+    if (user) setForm({ fullname: user.fullname||'', email: user.email||'', bio: user.bio||'' });
+  }, [user]);
 
-  const handleFile = e => { const f=e.target.files[0]; if(!f) return; setAvatar(f); setPrev(URL.createObjectURL(f)); };
+  const handleFile = e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    setAvatar(f);
+    setPrev(URL.createObjectURL(f));
+  };
+
   const uploadAvatar = async () => {
-    if (!avatar) return; setUploading(true);
-    const fd = new FormData(); fd.append('avatar', avatar);
+    if (!avatar) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('avatar', avatar);
     try {
       const res = await updateUserAvatar(fd);
-      const newAvatar = res.data?.data?.avatar||res.data?.data?.user?.avatar;
-      if (newAvatar) onUpdate({ avatar: newAvatar });
-      else { const u = await getCurrentUser(); if(u.data?.data?.avatar) onUpdate({ avatar: u.data.data.avatar }); }
-      showToast('Avatar updated!','success'); setAvatar(null); setPrev(null);
-    } catch(err) { showToast(err?.response?.data?.message||'Upload failed','error'); }
-    finally { setUploading(false); }
+      const newAvatar = res.data?.data?.avatar || res.data?.data?.user?.avatar;
+      if (newAvatar) {
+        onUpdate({ avatar: newAvatar });
+      } else {
+        const u = await getCurrentUser();
+        if (u.data?.data?.avatar) onUpdate({ avatar: u.data.data.avatar });
+      }
+      showToast('Avatar updated!', 'success');
+      setAvatar(null);
+      setPrev(null);
+    } catch(err) {
+      showToast(err?.response?.data?.message || 'Upload failed', 'error');
+    } finally { setUploading(false); }
   };
+
   const saveProfile = async () => {
-    if (!form.fullname||!form.email) { showToast('Name and email required','error'); return; }
+    if (!form.fullname || !form.email) { showToast('Name and email required', 'error'); return; }
     setSaving(true);
-    try { await updateUserDetails(form); onUpdate(form); }
-    catch(err) { showToast(err?.response?.data?.message||'Update failed','error'); }
-    finally { setSaving(false); }
+    try {
+      await updateUserDetails(form);
+      onUpdate(form);
+      showToast('Profile saved!', 'success');
+    } catch(err) {
+      showToast(err?.response?.data?.message || 'Update failed', 'error');
+    } finally { setSaving(false); }
   };
 
   return (
     <div className="tab-content space-y-6">
-      <div><h1 className="text-2xl font-bold text-gray-900" style={{fontFamily:"'Fraunces', serif"}}>Your Profile</h1><p className="text-sm text-gray-500 mt-0.5">Manage your personal information</p></div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900" style={{fontFamily:"'Fraunces', serif"}}>Your Profile</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Manage your personal information</p>
+      </div>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h2 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2"><Camera className="w-4 h-4 text-rose-400"/>Profile Photo</h2>
         <div className="flex items-center gap-5 flex-wrap">
-          <img src={preview||user?.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullname||'H')}&background=f43f5e&color=fff&size=100`} alt="avatar" className="w-24 h-24 rounded-2xl object-cover border-2 border-rose-100 shadow-sm"/>
+          <img
+            src={preview || user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullname||'H')}&background=f43f5e&color=fff&size=100`}
+            alt="avatar" className="w-24 h-24 rounded-2xl object-cover border-2 border-rose-100 shadow-sm" />
           <div>
             <input type="file" ref={fileRef} accept="image/*" onChange={handleFile} className="hidden"/>
             <div className="flex gap-2 flex-wrap">
-              <button onClick={()=>fileRef.current.click()} className="px-4 py-2 text-sm font-semibold rounded-full border border-gray-200 text-gray-700 hover:border-rose-300 hover:text-rose-500 transition flex items-center gap-2"><Upload className="w-3.5 h-3.5"/>Choose photo</button>
-              {preview&&<button onClick={uploadAvatar} disabled={uploading} className="px-4 py-2 text-sm font-semibold rounded-full bg-rose-500 text-white hover:bg-rose-600 transition disabled:opacity-50">{uploading?'Uploading…':'Save photo'}</button>}
+              <button onClick={()=>fileRef.current.click()} className="px-4 py-2 text-sm font-semibold rounded-full border border-gray-200 text-gray-700 hover:border-rose-300 hover:text-rose-500 transition flex items-center gap-2">
+                <Upload className="w-3.5 h-3.5"/>Choose photo
+              </button>
+              {preview && (
+                <button onClick={uploadAvatar} disabled={uploading} className="px-4 py-2 text-sm font-semibold rounded-full bg-rose-500 text-white hover:bg-rose-600 transition disabled:opacity-50">
+                  {uploading ? 'Uploading…' : 'Save photo'}
+                </button>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-2">JPG, PNG. Max 5MB.</p>
           </div>
@@ -2218,11 +2271,27 @@ function ProfileTab({ user, onUpdate, showToast }) {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h2 className="text-sm font-semibold text-gray-800 mb-5 flex items-center gap-2"><User className="w-4 h-4 text-rose-400"/>Personal Information</h2>
         <div className="grid sm:grid-cols-2 gap-4">
-          <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Full name</label><input value={form.fullname} onChange={e=>setForm(p=>({...p,fullname:e.target.value}))} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 focus:bg-white transition"/></div>
-          <div><label className="block text-xs font-semibold text-gray-500 mb-1.5">Email address</label><input type="email" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 focus:bg-white transition"/></div>
-          <div className="sm:col-span-2"><label className="block text-xs font-semibold text-gray-500 mb-1.5">Bio</label><textarea rows={3} value={form.bio} onChange={e=>setForm(p=>({...p,bio:e.target.value}))} placeholder="Tell guests a little about yourself as a host…" className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 focus:bg-white transition resize-none"/></div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Full name</label>
+            <input value={form.fullname} onChange={e=>setForm(p=>({...p,fullname:e.target.value}))}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 focus:bg-white transition"/>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Email address</label>
+            <input type="email" value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))}
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 focus:bg-white transition"/>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5">Bio</label>
+            <textarea rows={3} value={form.bio} onChange={e=>setForm(p=>({...p,bio:e.target.value}))}
+              placeholder="Tell guests a little about yourself as a host…"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 focus:bg-white transition resize-none"/>
+          </div>
         </div>
-        <button onClick={saveProfile} disabled={saving} className="mt-5 px-6 py-2.5 bg-rose-500 text-white text-sm font-semibold rounded-full hover:bg-rose-600 transition disabled:opacity-50">{saving?'Saving…':'Save changes'}</button>
+        <button onClick={saveProfile} disabled={saving}
+          className="mt-5 px-6 py-2.5 bg-rose-500 text-white text-sm font-semibold rounded-full hover:bg-rose-600 transition disabled:opacity-50">
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
       </div>
     </div>
   );
@@ -2232,39 +2301,92 @@ function ProfileTab({ user, onUpdate, showToast }) {
    SECURITY TAB
 ═══════════════════════════════════════════════════════════════════ */
 function SecurityTab({ showToast }) {
-  const [form,    setForm]    = useState({oldPassword:'',newPassword:'',confirmPassword:''});
-  const [show,    setShow]    = useState({old:false,new:false,confirm:false});
-  const [saving,  setSaving]  = useState(false);
-  const [strength,setStrength]= useState(0);
-  const calcStrength = pw => { let s=0; if(pw.length>=8)s++; if(/[A-Z]/.test(pw))s++; if(/[0-9]/.test(pw))s++; if(/[^A-Za-z0-9]/.test(pw))s++; return s; };
-  const handleChange = (field, val) => { setForm(p=>({...p,[field]:val})); if(field==='newPassword')setStrength(calcStrength(val)); };
-  const strengthMeta = [null,{label:'Weak',color:'bg-red-400',text:'text-red-400'},{label:'Fair',color:'bg-amber-400',text:'text-amber-500'},{label:'Good',color:'bg-blue-400',text:'text-blue-500'},{label:'Strong',color:'bg-emerald-500',text:'text-emerald-600'}];
-  const handleSubmit = async () => {
-    if(!form.oldPassword||!form.newPassword||!form.confirmPassword){showToast('All fields are required','error');return;}
-    if(form.newPassword!==form.confirmPassword){showToast('Passwords do not match','error');return;}
-    if(strength<2){showToast('Password too weak','error');return;}
-    setSaving(true);
-    try{await changePassword(form);showToast('Password changed!','success');setForm({oldPassword:'',newPassword:'',confirmPassword:''});setStrength(0);}
-    catch(err){showToast(err?.response?.data?.message||'Failed','error');}
-    finally{setSaving(false);}
+  const [form,     setForm]     = useState({ oldPassword:'', newPassword:'', confirmPassword:'' });
+  const [show,     setShow]     = useState({ old:false, new:false, confirm:false });
+  const [saving,   setSaving]   = useState(false);
+  const [strength, setStrength] = useState(0);
+
+  const calcStrength = pw => {
+    let s = 0;
+    if (pw.length >= 8)            s++;
+    if (/[A-Z]/.test(pw))          s++;
+    if (/[0-9]/.test(pw))          s++;
+    if (/[^A-Za-z0-9]/.test(pw))   s++;
+    return s;
   };
+
+  const handleChange = (field, val) => {
+    setForm(p => ({ ...p, [field]: val }));
+    if (field === 'newPassword') setStrength(calcStrength(val));
+  };
+
+  const strengthMeta = [
+    null,
+    { label: 'Weak',   color: 'bg-red-400',    text: 'text-red-400'    },
+    { label: 'Fair',   color: 'bg-amber-400',   text: 'text-amber-500'  },
+    { label: 'Good',   color: 'bg-blue-400',    text: 'text-blue-500'   },
+    { label: 'Strong', color: 'bg-emerald-500', text: 'text-emerald-600' },
+  ];
+
+  const handleSubmit = async () => {
+    if (!form.oldPassword || !form.newPassword || !form.confirmPassword) { showToast('All fields are required', 'error'); return; }
+    if (form.newPassword !== form.confirmPassword)                        { showToast('Passwords do not match', 'error'); return; }
+    if (strength < 2)                                                     { showToast('Password too weak', 'error'); return; }
+    setSaving(true);
+    try {
+      await changePassword(form);
+      showToast('Password changed!', 'success');
+      setForm({ oldPassword:'', newPassword:'', confirmPassword:'' });
+      setStrength(0);
+    } catch(err) {
+      showToast(err?.response?.data?.message || 'Failed', 'error');
+    } finally { setSaving(false); }
+  };
+
   return (
     <div className="tab-content space-y-6">
-      <div><h1 className="text-2xl font-bold text-gray-900" style={{fontFamily:"'Fraunces', serif"}}>Security</h1><p className="text-sm text-gray-500 mt-0.5">Keep your account safe</p></div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900" style={{fontFamily:"'Fraunces', serif"}}>Security</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Keep your account safe</p>
+      </div>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <h2 className="text-sm font-semibold text-gray-800 mb-5 flex items-center gap-2"><Lock className="w-4 h-4 text-rose-400"/>Change Password</h2>
         <div className="space-y-4 max-w-md">
           <PasswordField label="Current Password" field="oldPassword" value={form.oldPassword} show={show.old} onToggle={()=>setShow(p=>({...p,old:!p.old}))} onChange={handleChange}/>
           <PasswordField label="New Password" field="newPassword" value={form.newPassword} show={show.new} onToggle={()=>setShow(p=>({...p,new:!p.new}))} onChange={handleChange}/>
-          {form.newPassword&&(<div><div className="flex gap-1 mb-1">{[1,2,3,4].map(n=><div key={n} className={`h-1.5 flex-1 rounded-full transition-all ${n<=strength&&strengthMeta[strength]?strengthMeta[strength].color:'bg-gray-100'}`}/>)}</div>{strengthMeta[strength]&&<p className={`text-xs font-medium ${strengthMeta[strength].text}`}>{strengthMeta[strength].label}</p>}</div>)}
+          {form.newPassword && (
+            <div>
+              <div className="flex gap-1 mb-1">
+                {[1,2,3,4].map(n=>(
+                  <div key={n} className={`h-1.5 flex-1 rounded-full transition-all ${n<=strength&&strengthMeta[strength]?strengthMeta[strength].color:'bg-gray-100'}`}/>
+                ))}
+              </div>
+              {strengthMeta[strength] && <p className={`text-xs font-medium ${strengthMeta[strength].text}`}>{strengthMeta[strength].label}</p>}
+            </div>
+          )}
           <PasswordField label="Confirm Password" field="confirmPassword" value={form.confirmPassword} show={show.confirm} onToggle={()=>setShow(p=>({...p,confirm:!p.confirm}))} onChange={handleChange}/>
-          {form.confirmPassword&&<p className={`text-xs font-medium flex items-center gap-1 ${form.newPassword===form.confirmPassword?'text-emerald-600':'text-red-400'}`}>{form.newPassword===form.confirmPassword?<><CheckCircle className="w-3.5 h-3.5"/>Passwords match</>:<><XCircle className="w-3.5 h-3.5"/>Passwords don't match</>}</p>}
-          <div className="pt-2"><button onClick={handleSubmit} disabled={saving} className="px-6 py-2.5 bg-rose-500 text-white text-sm font-semibold rounded-full hover:bg-rose-600 transition disabled:opacity-50">{saving?'Changing…':'Change password'}</button></div>
+          {form.confirmPassword && (
+            <p className={`text-xs font-medium flex items-center gap-1 ${form.newPassword===form.confirmPassword?'text-emerald-600':'text-red-400'}`}>
+              {form.newPassword===form.confirmPassword
+                ? <><CheckCircle className="w-3.5 h-3.5"/>Passwords match</>
+                : <><XCircle className="w-3.5 h-3.5"/>Passwords don't match</>}
+            </p>
+          )}
+          <div className="pt-2">
+            <button onClick={handleSubmit} disabled={saving}
+              className="px-6 py-2.5 bg-rose-500 text-white text-sm font-semibold rounded-full hover:bg-rose-600 transition disabled:opacity-50">
+              {saving ? 'Changing…' : 'Change password'}
+            </button>
+          </div>
         </div>
       </div>
       <div className="bg-rose-50 rounded-2xl border border-rose-100 p-5">
         <h3 className="text-sm font-semibold text-rose-700 mb-2 flex items-center gap-2"><AlertCircle className="w-4 h-4"/>Password tips</h3>
-        <ul className="text-xs text-rose-600 space-y-1"><li>• Use at least 8 characters</li><li>• Mix uppercase letters, numbers and symbols (!@#$)</li><li>• Avoid reusing passwords from other sites</li></ul>
+        <ul className="text-xs text-rose-600 space-y-1">
+          <li>• Use at least 8 characters</li>
+          <li>• Mix uppercase letters, numbers and symbols (!@#$)</li>
+          <li>• Avoid reusing passwords from other sites</li>
+        </ul>
       </div>
     </div>
   );

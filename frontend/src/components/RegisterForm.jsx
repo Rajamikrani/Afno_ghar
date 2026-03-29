@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { registerUser } from "../service/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate , Link } from "react-router-dom";
 
 const RegisterForm = () => {
     const navigate = useNavigate(); // React Router navigate
@@ -254,6 +254,13 @@ const RegisterForm = () => {
           >
             {loading ? "Registering..." : "Register"}
           </button>
+        </div>
+              {/* ✅ Login link */}
+        <div className="col-span-2 text-center text-sm text-gray-500">
+          Already have an account?{" "}
+          <Link to="/login" className="text-blue-600 hover:underline font-medium">
+            Sign in
+          </Link>
         </div>
       </form>
     </div>

@@ -7,10 +7,6 @@ const API = axios.create({
 
 /* ══════════════════════════════════════════════════════════════════════
    REQUEST INTERCEPTOR
-   Attaches the accessToken from localStorage to every API request.
-   This was the missing piece — without it, all protected routes
-   (checkBookingEligibility, createReview, reserve, etc.) return 401
-   even when the user is logged in.
 ══════════════════════════════════════════════════════════════════════ */
 API.interceptors.request.use(
   (config) => {
@@ -25,7 +21,6 @@ API.interceptors.request.use(
 
 /* ══════════════════════════════════════════════════════════════════════
    RESPONSE INTERCEPTOR
-   Auto-clears stale auth and redirects to login on 401.
 ══════════════════════════════════════════════════════════════════════ */
 API.interceptors.response.use(
   (response) => response,
@@ -62,19 +57,41 @@ export const createListing = (listingData, onUploadProgress) => {
       formData.append(key, listingData[key]);
     }
   }
-  return API.post("/listings/create-listing", formData, {
-  
-    onUploadProgress,
-  });
+  return API.post("/listings/create-listing", formData, { onUploadProgress });
 };
+
+/* ─── FIX: updateListing was missing ─── */
+export const updateListing = (id, listingData, onUploadProgress) => {
+  const formData = new FormData();
+
+  // Only append actual File objects (new uploads)
+  if (listingData.images && listingData.images.length > 0) {
+    listingData.images.forEach((img) => {
+      if (img instanceof File) formData.append("images", img);
+    });
+  }
+
+  for (const key in listingData) {
+    if (key === "images" || key === "existingImages") continue;
+    if (key === "location" || key === "amenities") {
+      formData.append(key, JSON.stringify(listingData[key]));
+    } else {
+      formData.append(key, listingData[key]);
+    }
+  }
+
+  return API.patch(`/listings/update-listing/${id}`, formData, { onUploadProgress });
+};
+
+/* ─── FIX: deleteListing was missing ─── */
+export const deleteListing = (id) => API.delete(`/listings/delete-listing/${id}`);
 
 /* ══════════════════════════════════════════════════════════════════════
    USERS / AUTH
 ══════════════════════════════════════════════════════════════════════ */
 export const registerUser      = (formData) => API.post("/users/register", formData);
 export const loginUser         = (payload)  => API.post("/users/login", payload);
-export const logoutUser = () =>
-  API.post("/users/logout", {}, { withCredentials: true });
+export const logoutUser        = ()         => API.post("/users/logout", {}, { withCredentials: true });
 export const getCurrentUser    = ()         => API.get("/users/current-user");
 export const updateUserDetails = (data)     => API.patch("/users/update-details", data);
 export const updateUserAvatar  = (fd)       => API.patch("/users/update-avatar", fd, {
@@ -141,47 +158,40 @@ export const fetchMyBookings  = (status) =>
   API.get("/bookings/my-bookings", { params: status ? { status } : {} });
 export const createBookingApi = (payload) => API.post("/bookings/create", payload);
 
-
-
-
-/* ── Admin: Users ── */
+/* ══════════════════════════════════════════════════════════════════════
+   ADMIN
+══════════════════════════════════════════════════════════════════════ */
 export const adminGetAllUsers    = ()         => API.get("/users/all");
 export const adminUpdateUserRole = (id, role) => API.patch(`/users/${id}/role`, { role });
 export const adminDeleteUser     = (id)       => API.delete(`/users/${id}`);
 export const adminGetUserStats   = ()         => API.get("/users/admin/stats");
- 
-/* ── Admin: Listings ── */
+
 export const adminDeleteListing   = (id)     => API.delete(`/listings/${id}/admin`);
 export const adminGetListingStats = ()       => API.get("/listings/admin/stats");
- 
-/* ── Admin: Bookings ── */
+
+/* ─── FIX: was duplicated, now single ─── */
 export const adminGetAllListings = (params) => API.get("/listings/admin/all", { params });
-export const adminGetAllBookings = (params) => API.get("/bookings/admin/all", { params });
-export const adminGetBookingStats = ()      => API.get("/bookings/stats");
- 
-/* ── Admin: Reviews ── */
+
+export const adminGetAllBookings  = (params) => API.get("/bookings/admin/all", { params });
+export const adminGetBookingStats = ()       => API.get("/bookings/stats");
+
 export const adminGetAllReviews = (params) => API.get("/reviews/admin/all", { params });
 export const adminDeleteReview  = (id)     => API.delete(`/reviews/delete/${id}`);
- 
-/* ── Admin: Categories ── */
-export const adminGetCategories    = ()           => API.get("/categories");
-export const adminCreateCategory   = (data)       => API.post("/categories", data);
-export const adminUpdateCategory   = (id, data)   => API.patch(`/categories/${id}`, data);
-export const adminDeleteCategory   = (id)         => API.delete(`/categories/${id}`);
- 
-/* ── Admin: Amenities ── */
-export const adminGetAmenities     = ()           => API.get("/amenities");
-export const adminCreateAmenity    = (data)       => API.post("/amenities", data);
-export const adminToggleAmenity    = (id)         => API.patch(`/amenities/${id}/toggle`);
-export const adminDeleteAmenity    = (id)         => API.delete(`/amenities/${id}`);
 
-// Admin: approve or reject a listing
-// PATCH /listings/:listingId/status
+export const adminGetCategories  = ()           => API.get("/categories");
+export const adminCreateCategory = (data)       => API.post("/categories", data);
+export const adminUpdateCategory = (id, data)   => API.patch(`/categories/${id}`, data);
+export const adminDeleteCategory = (id)         => API.delete(`/categories/${id}`);
+
+export const adminGetAmenities  = ()    => API.get("/amenities");
+export const adminCreateAmenity = (data)=> API.post("/amenities", data);
+export const adminToggleAmenity = (id)  => API.patch(`/amenities/${id}/toggle`);
+export const adminDeleteAmenity = (id)  => API.delete(`/amenities/${id}`);
+
 export const adminUpdateListingStatus = (listingId, status, adminNote = "") =>
   API.patch(`/listings/${listingId}/status`, { status, adminNote });
 
-// Admin: get all listings regardless of status
-// GET /listings/admin/all
 export const adminGetAllListingsWithStatus = (params) =>
   API.get("/listings/admin/all", { params });
+
 export default API;

@@ -24,7 +24,7 @@ router.post("/create-listing",    verifyJWT, upload.array("images", 10), createL
 router.get("/similar/:listingId", verifyJWT, getSimilarListings);
 
 // ── Update & delete ──────────────────────────────────────────────────
-router.patch("/update-listings/:id",  verifyJWT, upload.array("images", 10), updateListing);
+router.patch("/edit-listing/:id",  verifyJWT, upload.array("images", 10), updateListing);
 router.delete("/delete-listing/:id",  verifyJWT, deleteListing);
 router.delete("/:id/admin",           verifyJWT, verifyAdmin, deleteListing);
 

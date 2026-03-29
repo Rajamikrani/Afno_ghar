@@ -297,7 +297,7 @@ export default function GuestPanel() {
                 </button>
               ))}
               <div className="border-t border-gray-100 mt-3 pt-3">
-                <button onClick={() => handleLogout().then(() => navigate("/")).catch(() => navigate("/"))}
+             <button onClick={() => handleLogout(navigate)}
                   className="nav-btn flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium w-full text-left text-red-500 hover:bg-red-50">
                   <LogOut className="w-4 h-4" /> Sign out
                 </button>

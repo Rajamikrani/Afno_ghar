@@ -6,30 +6,46 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import GuestPanel from "./pages/GuestPanel";
 import HostPanel from "./pages/HostPanel";
+import EditListing from './pages/EditListing';
 import AdminPanel from "./pages/AdminPanel";
 import ListYourHome from "./pages/ListYourHome";
 import UserProfile from './pages/UserProfile';
+import ProtectedRoute from "./utils/ProtectedRoute"; // 👈 add this
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/list-your-home" element={<ListYourHome />} />
-        <Route path="/guest-panel"   element={<GuestPanel />} /> 
-        <Route path="/host-panel"   element={<HostPanel />} /> 
-         <Route path="/admin-panel"   element={<AdminPanel />} /> 
-        <Route path="/listing/:id" element={<ListingDetail />} />
-        <Route path="/profile/:userId" element={<UserProfile />} />
-        <Route path="/profile" element={<UserProfile />} /> {/* own profile */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
 
-        {/* <Route path="/bookings/debug" element={<BookingConfirmation />} /> */}
-         {/* Protected routes */}
-        {/* <Route element={<ProtectedRoute />}>
-          <Route path="/" element={<AfnoGharIndex />} />
-          <Route path="/listing/:id" element={<ListingDetail />} />
-        </Route> */}
+        {/* ───── Public ───── */}
+        <Route path="/"            element={<Home />} />
+        <Route path="/listing/:id" element={<ListingDetail />} />
+        <Route path="/login"       element={<Login />} />
+        <Route path="/register"    element={<Register />} />
+
+        {/* ───── Any logged-in user ───── */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/profile"          element={<UserProfile />} />
+          <Route path="/profile/:userId"  element={<UserProfile />} />
+        </Route>
+
+        {/* ───── Host only ───── */}
+        <Route element={<ProtectedRoute allowedRoles={["host"]} />}>
+          <Route path="/host-panel"       element={<HostPanel />} />
+          <Route path="/list-your-home"   element={<ListYourHome />} />
+          <Route path="/edit-listing/:id" element={<EditListing />} />
+        </Route>
+
+        {/* ───── Guest only ───── */}
+        <Route element={<ProtectedRoute allowedRoles={["guest"]} />}>
+          <Route path="/guest-panel" element={<GuestPanel />} />
+        </Route>
+
+        {/* ───── Admin only ───── */}
+        <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
+          <Route path="/admin-panel" element={<AdminPanel />} />
+        </Route>
+
       </Routes>
     </BrowserRouter>
   );

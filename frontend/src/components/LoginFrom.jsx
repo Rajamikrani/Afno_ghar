@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { loginUser } from "../service/api";
 
 const LoginForm = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({ identifier: "", password: "" });
-  const [loading, setLoading]   = useState(false);
-  const [error,   setError]     = useState("");
-  const [success, setSuccess]   = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleChange = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -15,7 +14,6 @@ const LoginForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
 
     if (!formData.identifier || !formData.password) {
       setError("All fields are required.");
@@ -24,7 +22,7 @@ const LoginForm = () => {
 
     const payload = { password: formData.password };
     if (formData.identifier.includes("@")) {
-      payload.email    = formData.identifier.toLowerCase();
+      payload.email = formData.identifier.toLowerCase();
     } else {
       payload.username = formData.identifier.toLowerCase();
     }
@@ -32,61 +30,83 @@ const LoginForm = () => {
     try {
       setLoading(true);
       const res = await loginUser(payload);
-
-      // Backend returns: { statusCode, data: { user, accessToken, refreshToken }, message }
       const { user, accessToken } = res.data.data;
 
-      // ✅ Save to localStorage so ListingDetail (and any other page) can read it
-      localStorage.setItem("user",        JSON.stringify(user));
+      localStorage.setItem("user", JSON.stringify(user));
       localStorage.setItem("accessToken", accessToken);
 
-      setSuccess("Login successful!");
-      setFormData({ identifier: "", password: "" });
-
-      // Redirect based on role
-      if (user.role === "host") navigate("/host-panel");
-      else navigate("/");
-
+      const roleRoutes = { host: "/host-panel", guest: "/guest-panel", admin: "/admin-panel" };
+      navigate(roleRoutes[user.role] || "/", { replace: true });
     } catch (err) {
-      setError(
-        err.response?.data?.message || "Invalid credentials or server error."
-      );
+      setError(err.response?.data?.message || "Invalid credentials or server error.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded-xl shadow-md border">
-      <h2 className="text-2xl font-semibold mb-6 text-center">Login</h2>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
 
-      {error   && <p className="text-red-500 mb-4 text-sm">{error}</p>}
-      {success && <p className="text-green-500 mb-4 text-sm">{success}</p>}
+        {/* Header */}
+        <h1 className="text-2xl font-semibold text-gray-800 mb-1">Welcome back</h1>
+        <p className="text-sm text-gray-500 mb-6">Sign in to your account</p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block mb-1 font-medium text-sm">Email or Username</label>
-          <input
-            type="text" name="identifier" value={formData.identifier}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-400 text-sm"
-            placeholder="Enter email or username"
-          />
-        </div>
-        <div>
-          <label className="block mb-1 font-medium text-sm">Password</label>
-          <input
-            type="password" name="password" value={formData.password}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-400 text-sm"
-            placeholder="Enter password"
-          />
-        </div>
-        <button type="submit" disabled={loading}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 rounded-lg disabled:opacity-60 transition">
-          {loading ? "Logging in..." : "Login"}
-        </button>
-      </form>
+        {/* Error */}
+        {error && (
+          <p className="text-sm text-red-500 bg-red-50 border border-red-100 rounded-lg px-4 py-2.5 mb-5">
+            {error}
+          </p>
+        )}
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Email or Username
+            </label>
+            <input
+              type="text"
+              name="identifier"
+              value={formData.identifier}
+              onChange={handleChange}
+              placeholder="you@example.com"
+              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
+            <input
+              type="password"
+              name="password"
+              value={formData.password}
+              onChange={handleChange}
+              placeholder="••••••••"
+              className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-lg text-sm transition disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {loading ? "Signing in..." : "Sign in"}
+          </button>
+        </form>
+
+        {/* Register link */}
+        <p className="text-center text-sm text-gray-500 mt-5">
+          Don't have an account?{" "}
+          <Link to="/register" className="text-blue-600 hover:underline font-medium">
+            Register
+          </Link>
+        </p>
+
+      </div>
     </div>
   );
 };
