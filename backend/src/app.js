@@ -4,13 +4,20 @@ import cors from 'cors';
 
 const app = express();
 
+
 app.use(cors({
-    credentials : true ,
-    origin: [
-      "https://afno-ghar-frontend.onrender.com", // deployed frontend
-      "http://localhost:5173"                     // for local dev
-    ]
-}))
+  credentials: true,
+  origin: [
+    "https://afno-ghar-frontend.onrender.com",
+    "https://afno-ghar.onrender.com",   // ← ADD THIS
+    "http://localhost:5173"
+  ],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+// Handle preflight requests explicitly
+app.options("*", cors());
 app.use((req, res, next) => {
   console.log("📥 REQUEST:", req.method, req.url);
   next();

@@ -28,27 +28,3 @@ connectDB()
 
 
 
-
-/*
-import express from 'express';
-const app = express();
-
-( async() => {
-    const port = process.env.PORT || 8000;
-    try {
-        console.log("MONGODB URI --->", process.env.MONGODB_URI);
-        await mongoose.connect(`${process.env.MONGODB_URI}/${DB_NAME}`)
-        app.on("error" , (error) => {
-            console.log(error)
-            throw error
-        })
-        app.listen(port, () => {
-            console.log(`App is Listening at Port : ${port}`)
-        })
-    }catch(error) {
-        console.log("Error : " , error)
-        process.exit()
-    }
-})
-
-*/
