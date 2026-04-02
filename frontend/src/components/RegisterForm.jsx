@@ -191,7 +191,6 @@ const RegisterForm = () => {
           >
             <option value="guest">Guest</option>
             <option value="host">Host</option>
-            <option value="admin">Admin</option>
           </select>
         </div>
 

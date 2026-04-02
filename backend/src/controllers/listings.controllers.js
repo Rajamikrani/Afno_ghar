@@ -232,7 +232,15 @@ const updateListing = asyncHandler(async (req, res) => {
 
   const updates = { ...req.body };
 
-  // When host edits a listing, reset to pending for re-approval
+  // ✅ Parse JSON strings sent by multipart/form-data
+  if (typeof updates.location === "string") {
+    try { updates.location = JSON.parse(updates.location); } catch {}
+  }
+  if (typeof updates.amenities === "string") {
+    try { updates.amenities = JSON.parse(updates.amenities); } catch {}
+  }
+
+  // Reset to pending for re-approval
   updates.status     = "pending";
   updates.adminNote  = "";
   updates.reviewedBy = null;
