@@ -3,7 +3,7 @@ import { Review } from "../models/reviews.models.js";
 import { verifyJWT, verifyAdmin } from "../middleware/auth-middleware.js";
 import {
   createReviews, deleteReviews, getListingReviews,
-  getReviewsById, getReviewStats, updateReviews,
+  getReviewsById, getReviewStats, updateReviews, getHostReviews
 } from "../controllers/reviews.controllers.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
@@ -33,7 +33,8 @@ router.get("/admin/all", verifyJWT, verifyAdmin, async (req, res) => {
 router.post("/create/:listingId",         verifyJWT, createReviews);
 router.patch("/update/:reviewId",         verifyJWT, updateReviews);
 router.delete("/delete/:reviewId",        verifyJWT, deleteReviews);
-
+// for host reviews
+router.get("/host/:hostId", getHostReviews);
 // Parameterized routes last
 router.get("/:listingId/reviews",         verifyJWT, getListingReviews);
 router.get("/:listingId/stats",           verifyJWT, getReviewStats);

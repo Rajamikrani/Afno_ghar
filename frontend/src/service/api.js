@@ -1,8 +1,8 @@
 import axios from "axios";
 
 const API = axios.create({
-  // baseURL: "http://localhost:8000/api/v1",
-baseURL: "https://afno-ghar.onrender.com/api/v1",
+  baseURL: "http://localhost:8000/api/v1",
+// baseURL: "https://afno-ghar.onrender.com/api/v1",
   withCredentials: true,
 });
 
@@ -103,6 +103,14 @@ export const fetchUserListings = (hostId, limit = 6) => API.get("/listings/all-l
 export const changePassword    = (data)     => API.post("/users/change-current-password", data);
 export const fetchListingHost  = (listingId)=> API.get(`/users/${listingId}/host`);
 
+export const fetchHostListings = (hostId, limit = 6) =>
+  API.get(`/listings/host/${hostId}`, { params: { limit } });
+
+export const fetchHostReviews = (hostId, page = 1, limit = 6) =>
+  API.get(`/reviews/host/${hostId}`, { params: { page, limit } });
+
+export const fetchHostStats = (hostId) =>
+  API.get(`/listings/host/${hostId}/stats`);
 /* ══════════════════════════════════════════════════════════════════════
    BOOKINGS
 ══════════════════════════════════════════════════════════════════════ */

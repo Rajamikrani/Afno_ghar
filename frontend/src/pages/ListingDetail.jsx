@@ -35,6 +35,8 @@ const RATING_META = [
   { label: 'Excellent', emoji: '🤩', color: '#f43f5e', bg: '#fff1f2' },
 ];
 
+const REVIEWS_PER_PAGE = 6;
+
 const fmtShort = d =>
   new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -197,21 +199,42 @@ function ReviewForm({ listingId, existingReview, onSuccess, onCancel, currentUse
 
 /* ══════════════════════════════════════════════════════════════════
    SINGLE REVIEW CARD
+   ── Avatar is now clickable → navigates to /profile/:userId ──
 ══════════════════════════════════════════════════════════════════ */
 function ReviewCard({ review, isOwn, onEdit, onDelete }) {
   const [expanded, setExpanded] = useState(false);
-  const isLong = (review.review || '').length > 200;
-  const meta   = RATING_META[review.rating];
+  const navigate     = useNavigate();
+  const isLong       = (review.review || '').length > 200;
+  const meta         = RATING_META[review.rating];
+  const reviewUserId = review.user?._id || review.user?.id;   // ← extract user id
+
   return (
     <div className={`rounded-2xl border p-5 shadow-sm transition-shadow hover:shadow-md bg-white ${isOwn ? 'border-rose-200 ring-1 ring-rose-100' : 'border-gray-100'}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex items-center gap-3">
-          <img src={review.user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(review.user?.fullname || 'G')}&background=6366f1&color=fff&size=40`}
-            alt="" className="w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm" />
+          {/* ── Clickable avatar ── */}
+          <img
+            src={review.user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(review.user?.fullname || 'G')}&background=6366f1&color=fff&size=40`}
+            alt={review.user?.fullname || 'Guest'}
+            onClick={() => reviewUserId && navigate(`/profile/${reviewUserId}`)}
+            title={reviewUserId ? `View ${review.user?.fullname || 'user'}'s profile` : undefined}
+            className={`w-10 h-10 rounded-full object-cover border-2 border-white shadow-sm
+              transition-all duration-200 hover:opacity-80 hover:shadow-md hover:scale-105
+              ${reviewUserId ? 'cursor-pointer' : 'cursor-default'}`}
+          />
           <div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <p className="font-semibold text-gray-900 text-sm">{review.user?.fullname}</p>
-              {isOwn && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-rose-100 text-rose-600 rounded-full leading-none">Your review</span>}
+              {/* ── Clickable name too ── */}
+              <p
+                onClick={() => reviewUserId && navigate(`/profile/${reviewUserId}`)}
+                className={`font-semibold text-gray-900 text-sm ${reviewUserId ? 'cursor-pointer hover:text-rose-500 hover:underline transition-colors' : ''}`}>
+                {review.user?.fullname}
+              </p>
+              {isOwn && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-rose-100 text-rose-600 rounded-full leading-none">
+                  Your review
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-0.5">{fmtRel(review.createdAt)}</p>
           </div>
@@ -220,7 +243,7 @@ function ReviewCard({ review, isOwn, onEdit, onDelete }) {
           <StarRow rating={review.rating} size={13} />
           {isOwn && (
             <div className="flex gap-0.5 ml-1">
-              <button onClick={onEdit} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"><Pencil size={12} /></button>
+              <button onClick={onEdit}   className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-rose-50 text-gray-400 hover:text-rose-500 transition"><Pencil size={12} /></button>
               <button onClick={onDelete} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition"><Trash2 size={12} /></button>
             </div>
           )}
@@ -237,7 +260,8 @@ function ReviewCard({ review, isOwn, onEdit, onDelete }) {
         {!expanded && isLong && <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-white pointer-events-none" />}
       </div>
       {isLong && (
-        <button onClick={() => setExpanded(p => !p)} className="mt-1 text-xs font-semibold text-rose-500 hover:text-rose-700 transition flex items-center gap-1">
+        <button onClick={() => setExpanded(p => !p)}
+          className="mt-1 text-xs font-semibold text-rose-500 hover:text-rose-700 transition flex items-center gap-1">
           <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
           {expanded ? 'Show less' : 'Read more'}
         </button>
@@ -316,21 +340,10 @@ const ListingDetail = () => {
   const [similar,      setSimilar]      = useState([]);
   const [allAmenities, setAllAmenities] = useState([]);
 
-  /*
-   * ─── RATING STATE ────────────────────────────────────────────
-   * FIX: Separate live rating state that is kept in sync after
-   * every review mutation (create / update / delete).
-   *
-   * liveRating      — the listing's current averageRating (number, e.g. 4.3)
-   * liveReviewCount — total review count from pagination.total
-   * ratingDist      — full distribution [{star, count}] fetched from
-   *                   /reviews/:id/stats so bars are always accurate,
-   *                   not just based on the first page of reviews.
-   * ─────────────────────────────────────────────────────────────
-   */
+  /* ── Rating state ─────────────────────────────────────────────── */
   const [liveRating,      setLiveRating]      = useState(0);
   const [liveReviewCount, setLiveReviewCount] = useState(0);
-  const [ratingDist,      setRatingDist]      = useState([]); // [{star, count}]
+  const [ratingDist,      setRatingDist]      = useState([]);
 
   /* ── Auth ─────────────────────────────────────────────────────── */
   const [currentUser,     setCurrentUser]     = useState(null);
@@ -344,6 +357,19 @@ const ListingDetail = () => {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting,     setDeleting]     = useState(false);
   const [reviewToast,  setReviewToast]  = useState('');
+
+  /* ── Review list pagination (show more / show less) ───────────── */
+  /*
+   * visibleReviewCount — how many reviews to render from the loaded reviews[].
+   * When the user clicks "Show more":
+   *   - if more pages exist on the server  → fetch next page, then bump count
+   *   - if all reviews are already loaded  → just bump the count
+   * When the user clicks "Show less":
+   *   - snap back to REVIEWS_PER_PAGE (6)
+   * loadingMore — spinner guard while fetching the next page
+   */
+  const [visibleReviewCount, setVisibleReviewCount] = useState(REVIEWS_PER_PAGE);
+  const [loadingMore,        setLoadingMore]        = useState(false);
 
   /* ── Listing UI ───────────────────────────────────────────────── */
   const [loading,          setLoading]          = useState(true);
@@ -363,19 +389,7 @@ const ListingDetail = () => {
     guests: { adults: 1, children: 0, infants: 0 },
   });
 
-  /* ══════════════════════════════════════════════════════════════
-     FIX: refreshRatingStats
-     ──────────────────────────────────────────────────────────────
-     After every review mutation we:
-       1. Re-fetch the listing to get the fresh DB averageRating
-          (syncListingRating on backend already updated it)
-       2. Re-fetch review stats to get accurate distribution bars
-       3. Re-fetch paginated reviews page 1 to keep the list fresh
-
-     Previously this only fetched the listing and updated state,
-     but the distribution bars were computed from the partial
-     reviews array — now we fetch them separately from /stats.
-  ══════════════════════════════════════════════════════════════ */
+  /* ── refreshRatingStats ──────────────────────────────────────── */
   const refreshRatingStats = useCallback(async (targetId) => {
     try {
       const [listingRes, statsRes, reviewsRes] = await Promise.allSettled([
@@ -384,11 +398,9 @@ const ListingDetail = () => {
         fetchListingReviews(targetId, 1, 6),
       ]);
 
-      // ── 1. Update live rating from fresh listing data ──
       if (listingRes.status === 'fulfilled') {
         const data = listingRes.value.data?.data;
         if (data) {
-          // FIX: always parse as float; guard against null/undefined/"0"
           const newRating = parseFloat(data.averageRating);
           const newCount  = Number(data.numberOfRatings) || 0;
           setLiveRating(isNaN(newRating) ? 0 : newRating);
@@ -401,9 +413,6 @@ const ListingDetail = () => {
         }
       }
 
-      // ── 2. Update distribution from stats endpoint ──
-      // FIX: distribution was previously computed from partial reviews[].
-      // Now it comes from the dedicated stats API → always complete.
       if (statsRes.status === 'fulfilled') {
         const raw = statsRes.value.data?.data?.statistics?.ratingDistribution || [];
         const dist = [5,4,3,2,1].map(star => ({
@@ -413,25 +422,23 @@ const ListingDetail = () => {
         setRatingDist(dist);
       }
 
-      // ── 3. Refresh first page of reviews ──
       if (reviewsRes.status === 'fulfilled') {
         const { reviews: rv, pagination } = reviewsRes.value.data.data;
         const refreshedReviews = rv || [];
         setReviews(refreshedReviews);
         setReviewMeta(pagination || { total: 0, totalPages: 1, page: 1 });
-        // Use pagination.total as the authoritative count
+        // Reset visible count back to page-1 set after any mutation
+        setVisibleReviewCount(REVIEWS_PER_PAGE);
         if (pagination?.total != null) setLiveReviewCount(pagination.total);
-        // Safety net: recalculate from reviews if listing doc is still stale
         if (refreshedReviews.length > 0) {
           const avg = refreshedReviews.reduce((s, r) => s + r.rating, 0) / refreshedReviews.length;
           setLiveRating(prev => (prev === 0 ? parseFloat(avg.toFixed(1)) : prev));
         } else {
-          // No reviews left (e.g. after delete) — reset to 0
           setLiveRating(0);
           setLiveReviewCount(0);
         }
       }
-    } catch { /* silent — keeps last known values */ }
+    } catch { /* silent */ }
   }, []);
 
   /* ── 1. Read user from localStorage ──────────────────────────── */
@@ -459,15 +466,13 @@ const ListingDetail = () => {
         fetchListingById(id),
         fetchListingReviews(id, 1, 6),
         fetchSimilarListings(id, 4),
-        fetchReviewStats(id),   // FIX: fetch stats on initial load too
+        fetchReviewStats(id),
       ]);
 
       if (listingRes.status === 'fulfilled') {
         const data = listingRes.value.data.data;
         setListing(data);
         if (data.host && typeof data.host === 'object') setHost(data.host);
-
-        // FIX: parse properly — averageRating may be 0, "0", null or a float
         const parsedRating = parseFloat(data.averageRating);
         setLiveRating(isNaN(parsedRating) ? 0 : parsedRating);
         setLiveReviewCount(Number(data.numberOfRatings) || 0);
@@ -480,11 +485,8 @@ const ListingDetail = () => {
         const loadedReviews = rv || [];
         setReviews(loadedReviews);
         setReviewMeta(pagination || { total: 0, totalPages: 1, page: 1 });
-        // pagination.total is the authoritative count
+        setVisibleReviewCount(REVIEWS_PER_PAGE);
         if (pagination?.total != null) setLiveReviewCount(pagination.total);
-        // Safety net: if listing document averageRating is 0 but reviews exist,
-        // calculate it directly from the reviews so the UI never shows "No reviews yet"
-        // when there are actual reviews
         if (loadedReviews.length > 0) {
           const avg = loadedReviews.reduce((s, r) => s + r.rating, 0) / loadedReviews.length;
           setLiveRating(prev => (prev === 0 ? parseFloat(avg.toFixed(1)) : prev));
@@ -493,7 +495,6 @@ const ListingDetail = () => {
 
       if (similarRes.status === 'fulfilled') setSimilar(similarRes.value.data.data || []);
 
-      // FIX: seed distribution from stats endpoint, not from partial reviews[]
       if (statsRes.status === 'fulfilled') {
         const raw = statsRes.value.data?.data?.statistics?.ratingDistribution || [];
         const dist = [5,4,3,2,1].map(star => ({
@@ -518,14 +519,12 @@ const ListingDetail = () => {
     if (!user || !targetListingId) return;
     setEligState('checking');
     try {
-      // FIX: also fetch fresh listing so liveRating is never stale
       const [eligRes, reviewsRes, listingRes] = await Promise.allSettled([
         checkBookingEligibility(targetListingId),
         fetchListingReviews(targetListingId, 1, 100),
         fetchListingById(targetListingId),
       ]);
 
-      // ── Update liveRating from freshly fetched listing document ──
       if (listingRes.status === 'fulfilled') {
         const data = listingRes.value.data?.data;
         if (data) {
@@ -541,9 +540,8 @@ const ListingDetail = () => {
         freshReviews = rv || [];
         setReviews(freshReviews);
         setReviewMeta(pagination || { total: 0, totalPages: 1, page: 1 });
-        // pagination.total is the ground truth for the count
+        setVisibleReviewCount(REVIEWS_PER_PAGE);
         if (pagination?.total != null) setLiveReviewCount(pagination.total);
-        // Safety net: if listing document still shows 0, derive from actual reviews
         if (freshReviews.length > 0) {
           const avg = freshReviews.reduce((s, r) => s + r.rating, 0) / freshReviews.length;
           setLiveRating(prev => (prev === 0 ? parseFloat(avg.toFixed(1)) : prev));
@@ -578,16 +576,8 @@ const ListingDetail = () => {
     ? listing.images
     : ['https://placehold.co/800x600?text=No+Image'];
 
-  /*
-   * safeRating + displayReviewCount — SINGLE SOURCE OF TRUTH
-   *
-   * FIX: Previously liveRating could be left at null (shown as "0.0")
-   * because liveRating was initialised to null and only updated after
-   * the listing fetch. Now it's initialised to 0 and always set from
-   * parseFloat(data.averageRating) so it's always a valid number.
-   */
-  const safeRating         = liveRating;      // always a number ≥ 0
-  const displayReviewCount = liveReviewCount; // always a number ≥ 0
+  const safeRating         = liveRating;
+  const displayReviewCount = liveReviewCount;
 
   /* ── 5. Photo modal keyboard nav ─────────────────────────────── */
   useEffect(() => {
@@ -603,14 +593,41 @@ const ListingDetail = () => {
   }, [showPhotos, safeImages.length]);
 
   /* ── Review handlers ─────────────────────────────────────────── */
-  const loadMoreReviews = async () => {
-    if (reviewMeta.page >= reviewMeta.totalPages) return;
-    try {
-      const res = await fetchListingReviews(id, reviewMeta.page + 1, 6);
-      const { reviews: rv, pagination } = res.data.data;
-      setReviews(prev => [...prev, ...(rv || [])]);
-      setReviewMeta(pagination);
-    } catch { /* silent */ }
+
+  /*
+   * handleShowMore
+   * ─────────────
+   * 1. If we haven't fetched all server pages yet → fetch the next page,
+   *    append it to reviews[], then reveal REVIEWS_PER_PAGE more items.
+   * 2. If all reviews are already in memory → just bump visibleReviewCount.
+   */
+  const handleShowMore = async () => {
+    const nextVisible = visibleReviewCount + REVIEWS_PER_PAGE;
+
+    // Do we need to fetch a new server page?
+    if (nextVisible > reviews.length && reviewMeta.page < reviewMeta.totalPages) {
+      setLoadingMore(true);
+      try {
+        const res = await fetchListingReviews(id, reviewMeta.page + 1, 6);
+        const { reviews: rv, pagination } = res.data.data;
+        setReviews(prev => [...prev, ...(rv || [])]);
+        setReviewMeta(pagination);
+      } catch { /* silent */ }
+      finally { setLoadingMore(false); }
+    }
+
+    setVisibleReviewCount(nextVisible);
+  };
+
+  /*
+   * handleShowLess — collapse back to the first 6 reviews and
+   * smoothly scroll the reviews section header into view.
+   */
+  const handleShowLess = () => {
+    setVisibleReviewCount(REVIEWS_PER_PAGE);
+    setTimeout(() => {
+      document.getElementById('reviews-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 50);
   };
 
   const handleReviewSuccess = async () => {
@@ -713,19 +730,42 @@ const ListingDetail = () => {
   const mapCoords = listing?.location?.coordinates;
   const hasMap    = mapCoords?.lat && mapCoords?.lng;
 
-  /*
-   * FIX: dist now reads from ratingDist state (fetched from /stats endpoint)
-   * instead of being computed from the partial reviews[] array.
-   * This means the bars are always accurate regardless of pagination.
-   */
   const dist = ratingDist.length > 0
     ? ratingDist
     : [5,4,3,2,1].map(star => ({ star, count: reviews.filter(r => r.rating === star).length }));
 
+  /* ── filteredReviews → sliced to visibleReviewCount ──────────── */
   const filteredReviews = useMemo(
     () => ratingFilter > 0 ? reviews.filter(r => r.rating === ratingFilter) : reviews,
     [reviews, ratingFilter]
   );
+
+  // When a rating filter is active, show all matching ones (they're already a subset).
+  // When no filter, respect visibleReviewCount.
+  const visibleReviews = ratingFilter > 0
+    ? filteredReviews
+    : filteredReviews.slice(0, visibleReviewCount);
+
+  /*
+   * hasMoreToShow — true when there are reviews beyond the current visible window.
+   * This accounts for both:
+   *   (a) reviews already in memory but not yet rendered
+   *   (b) reviews still on the server (more pages available)
+   */
+  const hasMoreToShow = ratingFilter === 0 && (
+    visibleReviewCount < filteredReviews.length ||
+    reviewMeta.page < reviewMeta.totalPages
+  );
+
+  const hasLessToShow = ratingFilter === 0 && visibleReviewCount > REVIEWS_PER_PAGE;
+
+  // Total count including unfetched server pages
+  const totalRemaining = (() => {
+    if (ratingFilter > 0) return 0;
+    const serverTotal    = displayReviewCount;
+    const alreadyShowing = Math.min(visibleReviewCount, filteredReviews.length);
+    return Math.max(0, serverTotal - alreadyShowing);
+  })();
 
   const currentUid = String(currentUser?._id || currentUser?.id || '').trim();
 
@@ -786,15 +826,10 @@ const ListingDetail = () => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-28 lg:pb-6">
 
-        {/* TITLE
-            FIX: Only show rating if safeRating > 0 to avoid "0.0" being
-            shown for new listings with no reviews yet.
-        */}
+        {/* TITLE */}
         <div className="mb-5">
           <h1 className="text-2xl sm:text-3xl font-semibold mb-2">{listing.title}</h1>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-700">
-
-            {/* Rating + count — kept together in one flex item so they never split */}
             {safeRating > 0 ? (
               <span className="flex items-center gap-1">
                 <Star size={14} className="fill-yellow-400 text-yellow-400 shrink-0" />
@@ -806,15 +841,11 @@ const ListingDetail = () => {
             ) : (
               <span className="text-gray-400 text-sm italic">No reviews yet</span>
             )}
-
             <span className="text-gray-300 select-none">·</span>
-
-            {/* Location — kept together in one flex item */}
             <span className="flex items-center gap-1">
               <MapPin size={14} className="shrink-0" />
               <span>{listing.location.city}, {listing.location.state}, {listing.location.country}</span>
             </span>
-
             {listing.isGuestFavourite && (
               <>
                 <span className="text-gray-300 select-none">·</span>
@@ -939,7 +970,7 @@ const ListingDetail = () => {
             ══════════════════════════════════════════════════════════ */}
             <div className="pb-8 border-b border-gray-200" id="reviews-section">
 
-              {/* Section header — rating + count in one flex item so · never orphans */}
+              {/* Section header */}
               <div className="flex items-center gap-2 mb-6">
                 {safeRating > 0 ? (
                   <span className="flex items-center gap-2 text-xl font-semibold">
@@ -957,10 +988,7 @@ const ListingDetail = () => {
                 )}
               </div>
 
-              {/* Rating overview panel
-                  FIX: dist comes from ratingDist state (stats API), not
-                  partial reviews[]. Large number shows safeRating (live).
-              */}
+              {/* Rating overview panel */}
               {displayReviewCount > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8 p-5 bg-gray-50 rounded-2xl border border-gray-100">
                   <div className="flex flex-col justify-center">
@@ -1104,8 +1132,8 @@ const ListingDetail = () => {
                 )}
               </div>
 
-              {/* Public reviews list */}
-              {filteredReviews.length === 0 ? (
+              {/* ── Public reviews list ── */}
+              {visibleReviews.length === 0 ? (
                 <div className="text-center py-10 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
                   <MessageSquare size={32} className="text-gray-300 mx-auto mb-2" />
                   <p className="text-gray-500 text-sm font-medium">
@@ -1129,9 +1157,10 @@ const ListingDetail = () => {
                       </button>
                     </div>
                   )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {filteredReviews.map(review => {
-                      const rid = String(review.user?._id || review.user?.id || review.user || '').trim();
+                    {visibleReviews.map(review => {
+                      const rid  = String(review.user?._id || review.user?.id || review.user || '').trim();
                       const isOwn = currentUid.length > 0 && rid === currentUid &&
                         (eligState === 'can_review' || eligState === 'reviewed');
                       return (
@@ -1140,11 +1169,38 @@ const ListingDetail = () => {
                       );
                     })}
                   </div>
-                  {reviewMeta.page < reviewMeta.totalPages && ratingFilter === 0 && (
-                    <button onClick={loadMoreReviews}
-                      className="mt-6 px-6 py-3 border-2 border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition font-semibold text-sm">
-                      Show more reviews ({displayReviewCount - reviews.length} remaining)
-                    </button>
+
+                  {/* ── Show more / Show less controls ── */}
+                  {(hasMoreToShow || hasLessToShow) && (
+                    <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+
+                      {/* Show more */}
+                      {hasMoreToShow && (
+                        <button
+                          onClick={handleShowMore}
+                          disabled={loadingMore}
+                          className="inline-flex items-center gap-2 px-6 py-3
+                            border-2 border-gray-200 rounded-xl text-sm font-semibold text-gray-700
+                            hover:border-gray-400 hover:bg-gray-50 active:scale-[.98]
+                            disabled:opacity-60 disabled:cursor-not-allowed transition-all">
+                          {loadingMore
+                            ? <><RefreshCw size={14} className="animate-spin" /> Loading…</>
+                            : <><ChevronDown size={15} /> Show more reviews {totalRemaining > 0 && `(${totalRemaining} remaining)`}</>
+                          }
+                        </button>
+                      )}
+
+                      {/* Show less — only appears once user has expanded */}
+                      {hasLessToShow && (
+                        <button
+                          onClick={handleShowLess}
+                          className="inline-flex items-center gap-2 px-6 py-3
+                            border-2 border-gray-200 rounded-xl text-sm font-semibold text-gray-500
+                            hover:border-gray-400 hover:bg-gray-50 active:scale-[.98] transition-all">
+                          <ChevronDown size={15} className="rotate-180" /> Show less
+                        </button>
+                      )}
+                    </div>
                   )}
                 </>
               )}
@@ -1192,7 +1248,6 @@ const ListingDetail = () => {
                     <span className="text-2xl font-bold">${listing.price}</span>
                     <span className="text-gray-500 text-sm">/ night</span>
                   </div>
-                  {/* FIX: show listing rating in booking card too */}
                   {safeRating > 0 && (
                     <div className="flex items-center gap-1 text-sm">
                       <Star size={13} className="fill-amber-400 text-amber-400" />
@@ -1275,10 +1330,7 @@ const ListingDetail = () => {
                 )}
               </div>
 
-              {/* Host card
-                  FIX: Show BOTH safeRating (star average) AND displayReviewCount
-                  so the host card reflects the real listing rating, not just count.
-              */}
+              {/* Host card */}
               <div className="border border-gray-200 rounded-2xl p-5 flex flex-col gap-4">
                 <div className="flex items-center gap-3">
                   <img src={host?.avatar || `https://ui-avatars.com/api/?name=${host?.fullname || 'Host'}&background=10b981&color=fff`}
@@ -1291,14 +1343,6 @@ const ListingDetail = () => {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  {/*
-                    FIX: Left cell now shows the listing's star average rating
-                    (safeRating) — previously it only showed review count with
-                    a star icon which was misleading (looked like a rating but
-                    was actually the count number).
-
-                    Right cell still shows "Verified" identity badge.
-                  */}
                   <div className="flex flex-col items-center p-2 bg-gray-50 rounded-lg">
                     <div className="flex items-center gap-1 mb-0.5">
                       <Star size={14} className="text-amber-400 fill-amber-400" />

@@ -261,6 +261,61 @@ const updateListing = asyncHandler(async (req, res) => {
     new ApiResponse(200, updated, "Listing updated and resubmitted for approval.")
   );
 });
+const getHostListings = asyncHandler(async (req, res) => {
+  const { hostId } = req.params;
+  const { limit = 6, page = 1 } = req.query;
+
+  if (!mongoose.Types.ObjectId.isValid(hostId))
+    throw new ApiError(400, "Invalid host ID.");
+
+  const filter = {
+    host: hostId,
+    $or: [
+      { status: "approved" },
+      { status: { $exists: false } },
+      { status: null }
+    ]
+  };
+
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const listings = await Listing.find(filter)
+    .populate("host", "fullname avatar")
+    .populate("category", "name icon")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
+
+  const total = await Listing.countDocuments(filter);
+
+  return res.status(200).json(
+    new ApiResponse(200, { listings, total }, "Host listings fetched.")
+  );
+});
+
+const getHostStats = asyncHandler(async (req, res) => {
+  const { hostId } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(hostId))
+    throw new ApiError(400, "Invalid host ID.");
+
+  const listings = await Listing.find({
+    host: hostId,
+    $or: [{ status: "approved" }, { status: { $exists: false } }, { status: null }]
+  });
+
+  const totalListings = listings.length;
+  const avgRating = listings.length
+    ? listings.reduce((sum, l) => sum + (l.averageRating || 0), 0) / listings.length
+    : 0;
+
+  return res.status(200).json(
+    new ApiResponse(200, { totalListings, avgRating: avgRating.toFixed(1) }, "Host stats fetched.")
+  );
+});
+
+
+
 // ─────────────────────────────────────────────────────────────
 //  Search Listings (public)
 // ─────────────────────────────────────────────────────────────
@@ -459,6 +514,8 @@ export {
     deleteListing,
     getAllListings,
     getMyListings,
+    getHostListings ,
+    getHostStats ,
     getListingById,
     searchListings,
     getSimilarListings,

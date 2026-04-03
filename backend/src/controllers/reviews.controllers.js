@@ -146,6 +146,30 @@ const updateReviews = asyncHandler(async (req, res) => {
   );
 });
 
+const getHostReviews = asyncHandler(async (req, res) => {
+  const { hostId } = req.params;
+  const { page = 1, limit = 6 } = req.query;
+
+  // Find all listings by this host
+  const listings = await Listing.find({ host: hostId }).select("_id");
+  const listingIds = listings.map(l => l._id);
+
+  const skip = (Number(page) - 1) * Number(limit);
+
+  const reviews = await Review.find({ listing: { $in: listingIds } })
+    .populate("user", "fullname avatar")
+    .populate("listing", "title images")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
+
+  const total = await Review.countDocuments({ listing: { $in: listingIds } });
+
+  return res.status(200).json(
+    new ApiResponse(200, { reviews, total }, "Host reviews fetched.")
+  );
+});
+
 /* ══════════════════════════════════════════════════════════════════════
    GET REVIEW BY ID
 ══════════════════════════════════════════════════════════════════════ */
@@ -268,4 +292,5 @@ export {
   deleteReviews,
   getListingReviews,
   getReviewStats,
+  getHostReviews
 };
