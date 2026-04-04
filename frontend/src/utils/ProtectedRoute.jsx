@@ -6,6 +6,7 @@ const ProtectedRoute = ({ allowedRoles }) => {
   const user  = JSON.parse(localStorage.getItem("user"));
   const token = localStorage.getItem("accessToken");
 
+  
   if (!token || !user) {
     // Not logged in → redirect to login, remember the attempted URL
     return <Navigate to="/" state={{ from: location }} replace />;
