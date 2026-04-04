@@ -188,14 +188,15 @@ export const adminGetAllReviews = (params) => API.get("/reviews/admin/all", { pa
 export const adminDeleteReview  = (id)     => API.delete(`/reviews/delete/${id}`);
 
 export const adminGetCategories  = ()           => API.get("/categories");
-export const adminCreateCategory = (data)       => API.post("/categories", data);
-export const adminUpdateCategory = (id, data)   => API.patch(`/categories/${id}`, data);
-export const adminDeleteCategory = (id)         => API.delete(`/categories/${id}`);
+export const createCategory = (data) => API.post("/categories/create", data);
+export const updateCategory = (id, data) => API.patch(`/categories/${id}/update`, data);
+export const deleteCategory = (id) => API.delete(`/categories/${id}/delete`);
+export const deactivateCategory  = (id)       => API.patch(`/categories/${id}/deactivate`);
 
-export const adminGetAmenities  = ()    => API.get("/amenities");
-export const adminCreateAmenity = (data)=> API.post("/amenities", data);
-export const adminToggleAmenity = (id)  => API.patch(`/amenities/${id}/toggle`);
-export const adminDeleteAmenity = (id)  => API.delete(`/amenities/${id}`);
+export const adminGetAmenities   = ()         => API.get("/amenities");
+export const createAmenity       = (data)     => API.post("/amenities/admin/create-amenity", data);
+export const updateAmenity       = (id, data) => API.patch(`/amenities/admin/update-amenity/${id}`, data);
+export const deleteAmenity       = (id)       => API.delete(`/amenities/admin/delete-amenity/${id}`);
 
 export const adminUpdateListingStatus = (listingId, status, adminNote = "") =>
   API.patch(`/listings/${listingId}/status`, { status, adminNote });

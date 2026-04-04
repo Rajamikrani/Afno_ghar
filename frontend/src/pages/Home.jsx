@@ -2,11 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Search, MapPin, Heart, Star, Users, Bed, Bath,
   Minus, Plus, X, SlidersHorizontal, ChevronLeft, ChevronRight,
-  Home as HomeIcon, Sparkles, TrendingUp, Zap
+  Home as HomeIcon, Sparkles, TrendingUp, Zap, ChevronDown, ChevronUp,
+  LayoutGrid
 } from 'lucide-react';
 import {
   fetchListings, getCurrentUser,
-  getMyWishlist, toggleWishlistItem, fetchRecommendations
+  getMyWishlist, toggleWishlistItem, fetchRecommendations,
+  fetchCategories,
 } from '../service/api';
 import { useNavigate } from 'react-router-dom';
 
@@ -84,7 +86,6 @@ function ListingCard({ listing, wishlisted, onToggleWishlist, onClick, recommend
             ❤️ Saved
           </div>
         )}
-        {/* Recommended badge — only when NOT wishlisted so they don't overlap */}
         {recommended && !wishlisted && (
           <div className="absolute top-3 left-3 flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold rounded-full shadow-md">
             <Sparkles className="w-3 h-3" /> For you
@@ -170,7 +171,6 @@ function SkeletonCard() {
 function RecommendationSkeleton() {
   return (
     <div className="mb-10">
-      {/* header skeleton */}
       <div className="animate-pulse flex items-center gap-3 mb-5 px-4 py-3 bg-gray-50 rounded-2xl">
         <div className="w-8 h-8 bg-gray-200 rounded-xl" />
         <div className="flex-1 space-y-1.5">
@@ -185,18 +185,38 @@ function RecommendationSkeleton() {
   );
 }
 
+/* ─── category strip skeleton ─────────────────────────────────────────── */
+function CategorySkeleton() {
+  return (
+    <>
+      {[...Array(7)].map((_, i) => (
+        <div key={i} className="animate-pulse flex flex-col items-center gap-1.5 pb-1 shrink-0">
+          <div className="w-7 h-7 bg-gray-200 rounded-full" />
+          <div className="w-14 h-2.5 bg-gray-200 rounded" />
+        </div>
+      ))}
+    </>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════════ */
 const Home = () => {
   const navigate = useNavigate();
 
   /* ── base data ───────────────────────────────────────────────────── */
-  const [allListings,      setAllListings]      = useState([]);  // full catalogue from DB
-  const [recommendations,  setRecommendations]  = useState([]);  // personalised picks
-  const [recLoading,       setRecLoading]       = useState(true);  // true = show skeleton from start
-  const [recType,          setRecType]          = useState('none'); // 'personalised' | 'trending' | 'none'
+  const [allListings,      setAllListings]      = useState([]);
+  const [recommendations,  setRecommendations]  = useState([]);
+  const [recLoading,       setRecLoading]       = useState(true);
+  const [recType,          setRecType]          = useState('none');
   const [loading,          setLoading]          = useState(true);
   const [user,             setUser]             = useState(null);
   const [wishlistedIds,    setWishlistedIds]    = useState(new Set());
+
+  /* ── dynamic categories from DB ──────────────────────────────────── */
+  const [dbCategories,     setDbCategories]     = useState([]);   // all from API
+  const [catsLoading,      setCatsLoading]      = useState(true);
+  const [showAllCats,      setShowAllCats]      = useState(false); // More toggle
+  const CATS_VISIBLE = 6; // how many to show before "More"
 
   /* ── filters ─────────────────────────────────────────────────────── */
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -212,23 +232,39 @@ const Home = () => {
   });
   const searchRef = useRef(null);
 
-  const categories = [
-    { id: 'all',         label: 'All',        icon: '🌍' },
-    { id: 'apartment',   label: 'Apartments', icon: '🏢' },
-    { id: 'villa',       label: 'Villas',     icon: '🏰' },
-    { id: 'farmhouse',   label: 'Farmhouses', icon: '🌾' },
-    { id: 'studio',      label: 'Studios',    icon: '🎨' },
-    { id: 'shared-room', label: 'Shared',     icon: '👥' },
-    { id: 'treehouse',   label: 'Treehouses', icon: '🌲' },
-    { id: 'cottage',     label: 'Cottages',   icon: '🏡' },
-  ];
-
   const priceRanges = {
     all:    { min: undefined, max: undefined,  label: 'Any price' },
     low:    { min: 0,         max: 49,         label: 'Under $50' },
     medium: { min: 50,        max: 149,        label: '$50–$149'  },
     high:   { min: 150,       max: undefined,  label: '$150+'     },
   };
+
+  /* ── fetch categories from DB ────────────────────────────────────── */
+  useEffect(() => {
+    setCatsLoading(true);
+    fetchCategories()
+      .then(res => {
+        // handle both res.data.data (array) and res.data (array)
+        const raw = res?.data?.data ?? res?.data ?? [];
+        const active = Array.isArray(raw)
+          ? raw.filter(c => c.isActive !== false)  // show only active ones
+          : [];
+        setDbCategories(active);
+      })
+      .catch(() => setDbCategories([]))
+      .finally(() => setCatsLoading(false));
+  }, []);
+
+  /* ── built category list: "All" + DB items ───────────────────────── */
+  // Always show "All" first, then DB categories
+  const allCategoryOption = { _id: 'all', name: 'All', icon: '🌍' };
+
+  // The visible slice (All + first CATS_VISIBLE db cats, or all if expanded)
+  const visibleDbCats = showAllCats
+    ? dbCategories
+    : dbCategories.slice(0, CATS_VISIBLE);
+
+  const hasMoreCats = dbCategories.length > CATS_VISIBLE;
 
   /* ══════════════════════════════════════════════════════════════════
      STEP 1 — Load current user + wishlist + all listings in parallel
@@ -243,23 +279,18 @@ const Home = () => {
           getMyWishlist().catch(() => null),
         ]);
 
-        // ── listings ──
         if (listRes.status === 'fulfilled') {
-    const raw = listRes.value.data.data;
-
-// data.data is { listings: [...], total: N, page: N }
-const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
+          const raw = listRes.value.data.data;
+          const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
           setAllListings(listings);
         }
 
-        // ── user ──
         let resolvedUser = null;
         if (userRes.status === 'fulfilled' && userRes.value.data?.data) {
           resolvedUser = userRes.value.data.data;
           setUser(resolvedUser);
         }
 
-        // ── wishlist ──
         if (wlRes.status === 'fulfilled' && wlRes.value) {
           const wl = wlRes.value.data?.data?.listings || [];
           setWishlistedIds(new Set(wl.map(l => String(l._id || l))));
@@ -274,36 +305,18 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
   }, []);
 
   /* ══════════════════════════════════════════════════════════════════
-     STEP 2 — Once user + allListings are known, fetch recommendations.
-     Decision tree:
-       • Not logged in            → no personalization, allListings sorted by rating
-       • Logged in, has bookings  → fetchRecommendations() → "Picked for you"
-       • Logged in, no bookings   → top-rated from allListings → "Trending now"
+     STEP 2 — Recommendations
   ══════════════════════════════════════════════════════════════════ */
   useEffect(() => {
-    // Wait until both the main data load and allListings are ready
     if (loading || allListings.length === 0) return;
 
-    /*
-     * fallbackToTrending — used when:
-     *   • user is not logged in
-     *   • user has no past bookings (fetchRecommendations returns < 2)
-     *   • fetchRecommendations throws (no auth / network error)
-     *
-     * IMPORTANT: does NOT filter by averageRating > 0 because new listings
-     * all have averageRating = 0 and would be excluded, leaving trending empty.
-     * Instead we sort: rated listings first (by score), then unrated ones
-     * (by newest createdAt as a proxy for freshness).
-     */
     const fallbackToTrending = (listings) => {
       const rated   = [...listings].filter(l => (l.averageRating || 0) > 0)
         .sort((a, b) => b.averageRating - a.averageRating || (b.numberOfRatings || 0) - (a.numberOfRatings || 0));
       const unrated = [...listings].filter(l => !(l.averageRating > 0))
         .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
       const trending = [...rated, ...unrated].slice(0, 8);
       setRecommendations(trending);
-      // Always set trending (even if no rated listings) so the section renders
       setRecType('trending');
       setRecLoading(false);
     };
@@ -312,32 +325,19 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
       setRecLoading(true);
 
       if (!user) {
-        // Not logged in — show trending section (top-rated / newest)
         fallbackToTrending(allListings);
         return;
       }
 
       try {
         const res = await fetchRecommendations();
-
-        // 🔍 DEBUG — remove after confirming shape
-        console.log('[REC] full response:', res);
-        console.log('[REC] res.data:', res.data);
-        console.log('[REC] res.data.data:', res.data?.data);
-        console.log('[REC] res.data.message:', res.data?.message);
-
         const raw     = res.data?.data ?? res.data ?? [];
         const message = res.data?.message || '';
         const recs    = Array.isArray(raw) ? raw : [];
 
-        console.log('[REC] parsed recs array length:', recs.length);
-        console.log('[REC] message:', message);
-
         const isPersonalised =
           recs.length >= 1 &&
           !message.toLowerCase().includes('popular');
-
-        console.log('[REC] isPersonalised:', isPersonalised);
 
         if (isPersonalised) {
           const normalized = recs.map(l => ({
@@ -350,11 +350,9 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
           setRecType('personalised');
           setRecLoading(false);
         } else {
-          console.log('[REC] falling back to trending');
           fallbackToTrending(allListings);
         }
-      } catch (err) {
-        console.log('[REC] error caught:', err?.response?.status, err?.message);
+      } catch {
         fallbackToTrending(allListings);
       }
     };
@@ -375,8 +373,7 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
 
   /* ══════════════════════════════════════════════════════════════════
      FILTERING
-     The recommendation IDs are excluded from the main "All listings"
-     grid to avoid duplicating cards the user already sees above.
+     Category matching: use DB category name (case-insensitive)
   ══════════════════════════════════════════════════════════════════ */
   const recIds = new Set(recommendations.map(l => String(l._id)));
 
@@ -401,19 +398,14 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
     });
   }, [selectedCategory, searchData, priceRange]);
 
-  // Recommendations also respect active filters
   const filteredRecs = applyFilters(recommendations);
-
-  // Main grid: all listings MINUS the rec IDs (to avoid duplication), then filtered
   const filteredMain = applyFilters(
     allListings.filter(l => !recIds.has(String(l._id)))
   );
 
-  // When any filter is active, collapse the recommendation section and show everything
   const hasActiveFilter = selectedCategory !== 'all' || priceRange !== 'all' ||
     searchData.location || Object.values(searchData.guests).some(v => v > 0);
 
-  // If filters are active → just show one unified filtered grid from allListings
   const unifiedFilteredAll = hasActiveFilter ? applyFilters(allListings) : [];
 
   /* ── wishlist toggle ────────────────────────────────────────────── */
@@ -484,7 +476,6 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
   const hasActiveSearch = searchData.location || searchData.checkIn ||
     Object.values(searchData.guests).some(v => v > 0);
 
-  /* ── section config ─────────────────────────────────────────────── */
   const sectionConfig = {
     personalised: {
       icon:     <Sparkles className="w-4 h-4" />,
@@ -495,8 +486,6 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
     trending: {
       icon:     <TrendingUp className="w-4 h-4" />,
       title:    user ? 'Explore top stays' : 'Trending right now',
-      // Only show the "book your first stay" hint for logged-in users
-      // who genuinely have no bookings (recType will be 'trending' in that case)
       subtitle: user
         ? 'Discover the most-loved places on Afno Ghar'
         : 'Most popular listings right now',
@@ -504,8 +493,6 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
     },
   };
 
-  // While recommendations are loading, count all listings so empty-state never
-  // flashes prematurely before the rec section resolves
   const totalCount = hasActiveFilter
     ? unifiedFilteredAll.length
     : recLoading
@@ -517,8 +504,10 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;1,9..144,400&display=swap');
         @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+        @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .cat-expand { animation: fadeIn 0.2s ease both; }
       `}</style>
 
       {/* ══ HEADER ══════════════════════════════════════════════════════ */}
@@ -561,8 +550,8 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
 
             {/* Right actions */}
             <div className="flex items-center gap-2 shrink-0">
-              {!!user && (
-                <button
+             {!!user && user.role !== 'admin' && (
+               <button
                   onClick={() => navigate('/list-your-home')}
                   className="hidden sm:flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 rounded-full transition"
                 >
@@ -716,15 +705,65 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
         <div className="border-t border-gray-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6">
             <div className="flex items-center gap-6 overflow-x-auto py-3 scrollbar-hide">
-              {categories.map(cat => (
-                <button key={cat.id} onClick={() => setSelectedCategory(cat.id)}
-                  className={`flex flex-col items-center gap-1.5 pb-1 border-b-2 shrink-0 transition-all ${
-                    selectedCategory === cat.id ? 'border-rose-500 text-gray-900' : 'border-transparent text-gray-400 hover:text-gray-700 hover:border-gray-300'
-                  }`}>
-                  <span className="text-xl">{cat.icon}</span>
-                  <span className="text-xs font-semibold whitespace-nowrap">{cat.label}</span>
-                </button>
-              ))}
+
+              {/* ── "All" pill — always visible ── */}
+              <button
+                onClick={() => setSelectedCategory('all')}
+                className={`flex flex-col items-center gap-1.5 pb-1 border-b-2 shrink-0 transition-all ${
+                  selectedCategory === 'all'
+                    ? 'border-rose-500 text-gray-900'
+                    : 'border-transparent text-gray-400 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <span className="text-xl">🌍</span>
+                <span className="text-xs font-semibold whitespace-nowrap">All</span>
+              </button>
+
+              {/* ── DB categories (loading skeleton / real items) ── */}
+              {catsLoading ? (
+                <CategorySkeleton />
+              ) : (
+                <>
+                  {visibleDbCats.map(cat => (
+                    <button
+                      key={cat._id}
+                      onClick={() => setSelectedCategory(cat.name)}
+                      className={`flex flex-col items-center gap-1.5 pb-1 border-b-2 shrink-0 transition-all cat-expand ${
+                        selectedCategory === cat.name
+                          ? 'border-rose-500 text-gray-900'
+                          : 'border-transparent text-gray-400 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      <span className="text-xl">{cat.icon || '🏠'}</span>
+                      <span className="text-xs font-semibold whitespace-nowrap">{cat.name}</span>
+                    </button>
+                  ))}
+
+                  {/* ── More / Less toggle button ── */}
+                  {hasMoreCats && (
+                    <button
+                      onClick={() => setShowAllCats(v => !v)}
+                      className={`flex flex-col items-center gap-1.5 pb-1 border-b-2 shrink-0 transition-all ${
+                        showAllCats
+                          ? 'border-gray-400 text-gray-700'
+                          : 'border-transparent text-gray-400 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      <span className="w-7 h-7 flex items-center justify-center bg-gray-100 rounded-full">
+                        {showAllCats
+                          ? <ChevronUp className="w-3.5 h-3.5 text-gray-600" />
+                          : <ChevronDown className="w-3.5 h-3.5 text-gray-600" />
+                        }
+                      </span>
+                      <span className="text-xs font-semibold whitespace-nowrap">
+                        {showAllCats ? 'Less' : `More`}
+                      </span>
+                    </button>
+                  )}
+                </>
+              )}
+
+              {/* ── Divider + Filters button ── */}
               <div className="shrink-0 w-px h-8 bg-gray-200 mx-1" />
               <button
                 onClick={() => setShowFilters(f => !f)}
@@ -765,7 +804,7 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
       {/* ══ MAIN CONTENT ════════════════════════════════════════════════ */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
 
-        {/* ── result count + clear ────────────────────────────────────── */}
+        {/* ── result count + clear ─────────────────────────────────── */}
         {!loading && (
           <div className="flex items-center justify-between mb-6">
             <p className="text-sm text-gray-500">
@@ -793,7 +832,7 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
           </div>
 
         ) : totalCount === 0 && !recLoading ? (
-          /* ── Empty state ────────────────────────────────────────── */
+          /* ── Empty state ─────────────────────────────────────────── */
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-5">
               <HomeIcon className="w-9 h-9 text-gray-300" />
@@ -812,7 +851,7 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
 
         ) : hasActiveFilter ? (
           /* ════════════════════════════════════════════════════════════
-             FILTERED MODE — one unified grid, no recommendation sections
+             FILTERED MODE — one unified grid
           ════════════════════════════════════════════════════════════ */
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {unifiedFilteredAll.map((listing, i) => (
@@ -829,11 +868,10 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
 
         ) : (
           /* ════════════════════════════════════════════════════════════
-             DEFAULT MODE — recommendation section on top, rest below
+             DEFAULT MODE — recommendations on top, rest below
           ════════════════════════════════════════════════════════════ */
           <div>
 
-            {/* ── Recommendation section ──────────────────────────── */}
             {recLoading ? (
               <RecommendationSkeleton />
             ) : recType !== 'none' && filteredRecs.length > 0 && (
@@ -860,7 +898,6 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
               </section>
             )}
 
-            {/* ── Divider + "All listings" header ─────────────────── */}
             {recType !== 'none' && filteredRecs.length > 0 && filteredMain.length > 0 && (
               <div className="flex items-center gap-4 mb-6">
                 <div className="flex-1 h-px bg-gray-200" />
@@ -872,7 +909,6 @@ const listings = Array.isArray(raw) ? raw : raw?.listings ?? [];
               </div>
             )}
 
-            {/* ── Main listings grid ───────────────────────────────── */}
             {filteredMain.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {filteredMain.map((listing, i) => (

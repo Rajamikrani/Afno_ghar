@@ -25,6 +25,7 @@ function App() {
 
         {/* ───── Any logged-in user ───── */}
         <Route element={<ProtectedRoute />}>
+          <Route path="/list-your-home"   element={<ListYourHome />} />
           <Route path="/profile"          element={<UserProfile />} />
           <Route path="/profile/:userId"  element={<UserProfile />} />
         </Route>
@@ -32,7 +33,6 @@ function App() {
         {/* ───── Host only ───── */}
         <Route element={<ProtectedRoute allowedRoles={["host"]} />}>
           <Route path="/host-panel"       element={<HostPanel />} />
-          <Route path="/list-your-home"   element={<ListYourHome />} />
           <Route path="/edit-listing/:id" element={<EditListing />} />
         </Route>
 
