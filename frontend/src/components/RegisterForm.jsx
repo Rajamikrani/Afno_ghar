@@ -1,28 +1,17 @@
 import { useState } from "react";
 import { registerUser } from "../service/api";
-import { useNavigate , Link } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 
 const RegisterForm = () => {
-    const navigate = useNavigate(); // React Router navigate
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
-    username: "",
-    email: "",
-    fullname: "",
-    password: "",
-    confirmPassword: "",
-    avatar: null,
-    bio: "",
-    role: "guest",
-    country: "",
-    state: "",
-    city: "",
+    username: "", email: "", fullname: "", password: "",
+    confirmPassword: "", avatar: null, bio: "",
+    role: "guest", country: "", state: "", city: "",
   });
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
-  // Handle input changes
   const handleChange = (e) => {
     if (e.target.name === "avatar") {
       setFormData({ ...formData, avatar: e.target.files[0] });
@@ -31,22 +20,15 @@ const RegisterForm = () => {
     }
   };
 
-  // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
-
-    // Password confirmation check
     if (formData.password !== formData.confirmPassword) {
       setError("Passwords do not match");
       return;
     }
-
     try {
       setLoading(true);
-
-      // Create FormData for multipart/form-data
       const data = new FormData();
       data.append("fullname", formData.fullname);
       data.append("username", formData.username);
@@ -55,213 +37,118 @@ const RegisterForm = () => {
       data.append("role", formData.role);
       data.append("bio", formData.bio);
       data.append("avatar", formData.avatar);
-
-      // Nested address fields
       data.append("address[country]", formData.country);
       data.append("address[state]", formData.state);
       data.append("address[city]", formData.city);
-
-      // Call API
-      const res = await registerUser(data);
-
-      // Show success message from backend
-      setSuccess(res?.message || "Registration successful!");
-
-      // Reset form
-      setFormData({
-        username: "",
-        email: "",
-        fullname: "",
-        password: "",
-        confirmPassword: "",
-        avatar: null,
-        bio: "",
-        role: "guest",
-        country: "",
-        state: "",
-        city: "",
-      });
-    navigate("/login");
+      await registerUser(data);
+      navigate("/login");
     } catch (err) {
-      // Handle backend errors properly
-      const msg = err?.message || "Something went wrong. Please try again.";
-      setError(msg);
+      setError(err?.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
+  const inp = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50";
+
   return (
-    <div className="max-w-3xl mx-auto mt-10 p-6 bg-white rounded-xl shadow-md border border-gray-200">
-      <h2 className="text-2xl font-semibold mb-6 text-center">Register</h2>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg bg-white rounded-2xl shadow-md p-6 sm:p-8">
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
-      {success && <p className="text-green-500 mb-4">{success}</p>}
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-1">Create account</h2>
+        <p className="text-sm text-gray-400 mb-5">Fill in the details below to get started</p>
 
-      <form
-        onSubmit={handleSubmit}
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
-      >
-        {/* Full Name */}
-        <div>
-          <label className="block mb-1 font-medium">Full Name</label>
-          <input
-            type="text"
-            name="fullname"
-            value={formData.fullname}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+        {error && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-4">
+            {error}
+          </p>
+        )}
 
-        {/* Username */}
-        <div>
-          <label className="block mb-1 font-medium">Username</label>
-          <input
-            type="text"
-            name="username"
-            value={formData.username}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
 
-        {/* Email */}
-        <div>
-          <label className="block mb-1 font-medium">Email</label>
-          <input
-            type="email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Full Name</label>
+              <input type="text" name="fullname" value={formData.fullname} onChange={handleChange} required placeholder="John Doe" className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Username</label>
+              <input type="text" name="username" value={formData.username} onChange={handleChange} required placeholder="johndoe" className={inp} />
+            </div>
+          </div>
 
-        {/* Password */}
-        <div>
-          <label className="block mb-1 font-medium">Password</label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+          {/* Email */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+            <input type="email" name="email" value={formData.email} onChange={handleChange} required placeholder="john@example.com" className={inp} />
+          </div>
 
-        {/* Confirm Password */}
-        <div>
-          <label className="block mb-1 font-medium">Confirm Password</label>
-          <input
-            type="password"
-            name="confirmPassword"
-            value={formData.confirmPassword}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+          {/* Row 2 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+              <input type="password" name="password" value={formData.password} onChange={handleChange} required placeholder="••••••••" className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Confirm Password</label>
+              <input type="password" name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} required placeholder="••••••••" className={inp} />
+            </div>
+          </div>
 
-        {/* Avatar */}
-        <div>
-          <label className="block mb-1 font-medium">Avatar</label>
-          <input
-            type="file"
-            name="avatar"
-            accept="image/*"
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+          {/* Row 3 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Role</label>
+              <select name="role" value={formData.role} onChange={handleChange} className={inp}>
+                <option value="guest">Guest</option>
+                <option value="host">Host</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Avatar</label>
+              <input type="file" name="avatar" accept="image/*" onChange={handleChange} required className={`${inp} text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:bg-blue-50 file:text-blue-600`} />
+            </div>
+          </div>
 
-        {/* Role */}
-        <div>
-          <label className="block mb-1 font-medium">Role</label>
-          <select
-            name="role"
-            value={formData.role}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          >
-            <option value="guest">Guest</option>
-            <option value="host">Host</option>
-          </select>
-        </div>
+          {/* Row 4 — Location */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Country</label>
+              <input type="text" name="country" value={formData.country} onChange={handleChange} required placeholder="Nepal" className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">State</label>
+              <input type="text" name="state" value={formData.state} onChange={handleChange} placeholder="Bagmati" className={inp} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">City</label>
+              <input type="text" name="city" value={formData.city} onChange={handleChange} placeholder="Kathmandu" className={inp} />
+            </div>
+          </div>
 
-        {/* Country */}
-        <div>
-          <label className="block mb-1 font-medium">Country</label>
-          <input
-            type="text"
-            name="country"
-            value={formData.country}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
+          {/* Bio */}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Bio</label>
+            <textarea name="bio" value={formData.bio} onChange={handleChange} maxLength={1000} rows={2} placeholder="Tell us about yourself..." className={`${inp} resize-none`} />
+          </div>
 
-        {/* State */}
-        <div>
-          <label className="block mb-1 font-medium">State</label>
-          <input
-            type="text"
-            name="state"
-            value={formData.state}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
-
-        {/* City */}
-        <div>
-          <label className="block mb-1 font-medium">City</label>
-          <input
-            type="text"
-            name="city"
-            value={formData.city}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-        </div>
-
-        {/* Bio */}
-        <div className="col-span-2">
-          <label className="block mb-1 font-medium">Bio</label>
-          <textarea
-            name="bio"
-            value={formData.bio}
-            onChange={handleChange}
-            maxLength={1000}
-            placeholder="Tell us about yourself..."
-            className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
-          ></textarea>
-        </div>
-
-        {/* Submit Button */}
-        <div className="col-span-2">
+          {/* Submit */}
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg text-sm transition-colors mt-1"
           >
-            {loading ? "Registering..." : "Register"}
+            {loading ? "Creating account..." : "Register"}
           </button>
-        </div>
-              {/* ✅ Login link */}
-        <div className="col-span-2 text-center text-sm text-gray-500">
-          Already have an account?{" "}
-          <Link to="/login" className="text-blue-600 hover:underline font-medium">
-            Sign in
-          </Link>
-        </div>
-      </form>
+
+          <p className="text-center text-xs text-gray-400">
+            Already have an account?{" "}
+            <Link to="/login" className="text-blue-600 hover:underline font-medium">Sign in</Link>
+          </p>
+
+        </form>
+      </div>
     </div>
   );
 };
