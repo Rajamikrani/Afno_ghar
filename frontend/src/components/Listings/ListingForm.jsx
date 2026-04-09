@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, ChevronLeft, ChevronRight, Home, MapPin, Users, Bed, Bath, Upload, DollarSign, Check, Navigation } from 'lucide-react';
-import { fetchAmenities, fetchCategories, createListing } from '../../service/api';
+import { fetchAmenities, fetchCategories, createListing , getCurrentUser } from '../../service/api';
 import { useNavigate } from 'react-router-dom';
 
 /* ─── Amenity category definitions ──────────────────────────────────────── */
@@ -322,33 +322,55 @@ const ListingForm = ({ onClose }) => {
   };
 
   /* ── Submit ───────────────────────────────────────────────────────── */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    setUploadProgress(0);
+/* ── Submit ───────────────────────────────────────────────────────── */
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  if (isSubmitting) return;
+  setIsSubmitting(true);
+  setUploadProgress(0);
 
-    let fake = 0;
-    const interval = setInterval(() => {
-      fake += Math.random() * 5;
-      if (fake < 95) setUploadProgress(Math.floor(fake));
-    }, 200);
+  let fake = 0;
+  const interval = setInterval(() => {
+    fake += Math.random() * 5;
+    if (fake < 95) setUploadProgress(Math.floor(fake));
+  }, 200);
 
+  try {
+    const res = await createListing(formData, (pe) => {
+      const pct = Math.round((pe.loaded * 100) / pe.total);
+      setUploadProgress(prev => Math.max(prev, pct));
+    });
+
+    setUploadProgress(100);
+
+    // ── Sync fresh user from server so localStorage role is up to date ──
     try {
-      await createListing(formData, (pe) => {
-        const pct = Math.round((pe.loaded * 100) / pe.total);
-        setUploadProgress(prev => Math.max(prev, pct));
-      });
-      setUploadProgress(100);
-      onClose();
-      navigate('/');
+      const userRes = await getCurrentUser();
+      const freshUser = userRes.data?.data;
+      if (freshUser) {
+        localStorage.setItem("user", JSON.stringify(freshUser));
+      }
     } catch {
-      alert('Failed to submit listing. Please try again.');
-    } finally {
-      clearInterval(interval);
-      setIsSubmitting(false);
+      // non-critical — worst case the redirect still works
     }
-  };
+
+    onClose();
+
+    // ── Redirect based on updated role ──
+    const updatedUser = JSON.parse(localStorage.getItem("user") || "null");
+    if (updatedUser?.role === "host") {
+      navigate("/host-panel");
+    } else {
+      navigate("/");
+    }
+
+  } catch {
+    alert("Failed to submit listing. Please try again.");
+  } finally {
+    clearInterval(interval);
+    setIsSubmitting(false);
+  }
+};
 
   /* ── Categorised amenities ────────────────────────────────────────── */
   const groupedAmenities = (() => {

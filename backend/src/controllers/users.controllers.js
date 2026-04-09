@@ -21,34 +21,28 @@
         const country = req.body?.address?.country;
         const state = req.body?.address?.state;
         const city = req.body?.address?.city;
-
         if (!fullname || !username || !email || !password || !country) {
             throw new ApiError(400, "Required fields missing.");
         }
-
         const existedUser = await User.findOne({
             $or: [
                 { username: username.toLowerCase() },
                 { email: email.toLowerCase() }
             ]
         });
-
         if (existedUser) {
             throw new ApiError(409, "User already exists.");
         }
-
         const avatarLocalPath = req.files?.avatar?.[0]?.path;
 
         if (!avatarLocalPath) {
             throw new ApiError(400, "Avatar file missing.");
         }
-
         const uploadedAvatar = await uploadCloudinary(avatarLocalPath);
 
         if (!uploadedAvatar?.secure_url) {
             throw new ApiError(500, "Cloudinary upload failed.");
         }
-
         const user = await User.create({
             fullname,
             username: username.toLowerCase(),
@@ -63,10 +57,8 @@
                 city
             }
         });
-
         const createdUser = await User.findById(user._id)
             .select("-password -refreshToken");
-
         return res.status(201).json(
             new ApiResponse(201, createdUser, "User registered successfully.")
         );
@@ -85,42 +77,37 @@
         await user.save({validateBeforeSave : false})
         return { accessToken, refreshToken }; 
     } catch (error) {
-        throw new ApiError(500 , "Something went wrong while generating access and refresh token.");
+        throw new ApiError(500 ,
+             "Something went wrong while generating access and refresh token.");
     }
     }
 
     // controller for login user
     const loginUser = asyncHandler(async (req, res) => {
     const { username, email, password } = req.body;
-
     if (!password || !(username || email)) {
         throw new ApiError(400, "Username or email and password are required");
     }
-
     const query = [];
     if (username) query.push({ username: username.toLowerCase() });
     if (email) query.push({ email: email.toLowerCase() });
-
     const user = await User.findOne({ $or: query });
     if (!user) {
         throw new ApiError(400, "User does not exists");
     }
-
     const isPasswordValid = await user.isPasswordCorrect(password);
     if (!isPasswordValid) {
         throw new ApiError(401, "Invalid credentials");
     }
-
     const { accessToken, refreshToken } = await generateAccessAndRefreshToken(user._id);
-
     const loggedInUser = await User.findById(user._id).select("-password -refreshToken");
-
     return res
         .status(200)
         .cookie("accessToken", accessToken, options)
         .cookie("refreshToken", refreshToken, options)
         .json(
-        new ApiResponse(200, { user: loggedInUser, accessToken, refreshToken }, "User LoggedIn Successfully.")
+        new ApiResponse(200, { user: loggedInUser, accessToken, refreshToken },
+             "User LoggedIn Successfully.")
         );
     });
 

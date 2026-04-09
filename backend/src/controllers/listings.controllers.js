@@ -143,6 +143,14 @@ const createListing = asyncHandler(async (req, res) => {
     status: "pending", // ← always starts pending
   });
 
+ if (req.user.role === "guest") {
+    await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { role: "host" } },
+      { new: true }
+    );
+  }
+  
   return res.status(201).json(
     new ApiResponse(201, listing, "Listing created and submitted for admin approval.")
   );

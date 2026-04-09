@@ -15,7 +15,7 @@ import {
 
 import {
   getCurrentUser, logoutUser,
-  adminGetAllUsers, adminUpdateUserRole, adminDeleteUser,
+  adminGetAllUsers, adminDeleteUser,
   adminGetAllListings, adminDeleteListing,
   adminGetAllBookings, adminGetBookingStats,
   adminGetAllReviews, adminDeleteReview,
@@ -53,12 +53,6 @@ const fmtRel   = (d) => { const days = Math.floor((Date.now() - new Date(d)) / 8
 const nights   = (a, b) => Math.max(1, Math.round((new Date(b) - new Date(a)) / 86_400_000));
 const fmtMoney = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
 
-/**
- * Safely extract data from various API response shapes:
- *   res.data.data  (axios + custom wrapper)
- *   res.data       (axios direct)
- *   res            (already unwrapped)
- */
 const extractData = (res) => res?.data?.data ?? res?.data ?? res;
 
 /* ════════════════════════════════════════════════════════════════════
@@ -284,61 +278,149 @@ function DashboardTab({ stats, users, listings, bookings, navigate, setActiveTab
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   USERS TAB
+   USERS TAB  (role-change removed; avatar click → profile)
 ════════════════════════════════════════════════════════════════════ */
-function UsersTab({ users, loading, onRefresh, showToast }) {
+function UsersTab({ users, loading, onRefresh, showToast, navigate }) {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [page, setPage] = useState(1);
-  const [updating, setUpdating] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+
   const [localUsers, setLocalUsers] = useState(users);
   const PER_PAGE = 10;
+
   useEffect(() => { setLocalUsers(users); }, [users]);
   useEffect(() => { setPage(1); }, [search, roleFilter]);
-  const filtered = localUsers.filter(u => roleFilter === "all" || u.role === roleFilter).filter(u => { if (!search.trim()) return true; const q = search.toLowerCase(); return (u.fullname||"").toLowerCase().includes(q)||(u.email||"").toLowerCase().includes(q)||(u.username||"").toLowerCase().includes(q); });
+
+  const filtered = localUsers
+    .filter(u => roleFilter === "all" || u.role === roleFilter)
+    .filter(u => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (u.fullname||"").toLowerCase().includes(q)
+        || (u.email||"").toLowerCase().includes(q)
+        || (u.username||"").toLowerCase().includes(q);
+    });
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-  const handleRoleChange = async (userId, newRole) => { setUpdating(userId); try { await adminUpdateUserRole(userId, newRole); setLocalUsers(prev => prev.map(u => u._id === userId ? { ...u, role: newRole } : u)); showToast(`Role updated to ${newRole}`, "success"); } catch (err) { showToast(err?.response?.data?.message || "Failed to update role", "error"); } finally { setUpdating(null); } };
-  const handleDelete = async () => { if (!deleteTarget) return; setDeleting(true); try { await adminDeleteUser(deleteTarget._id); setLocalUsers(prev => prev.filter(u => u._id !== deleteTarget._id)); showToast("User deleted", "success"); setDeleteTarget(null); } catch { showToast("Failed to delete user", "error"); } finally { setDeleting(false); } };
-  const roleCounts = { all: localUsers.length, ...Object.fromEntries(ROLES.map(r => [r, localUsers.filter(u => u.role === r).length])) };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await adminDeleteUser(deleteTarget._id);
+      setLocalUsers(prev => prev.filter(u => u._id !== deleteTarget._id));
+      showToast("User deleted", "success");
+      setDeleteTarget(null);
+    } catch {
+      showToast("Failed to delete user", "error");
+    } finally { setDeleting(false); }
+  };
+
+  const roleCounts = {
+    all: localUsers.length,
+    ...Object.fromEntries(ROLES.map(r => [r, localUsers.filter(u => u.role === r).length]))
+  };
+
   return (
     <div className="tab-content space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Users</h1><p className="text-sm text-gray-500 mt-0.5">{localUsers.length} registered members</p></div>
-        <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition"><RefreshCw className="w-4 h-4" /></button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Users</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{localUsers.length} registered members</p>
+        </div>
+        <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition">
+          <RefreshCw className="w-4 h-4" />
+        </button>
       </div>
+
+      {/* Role filter pills */}
       <div className="flex gap-2 flex-wrap">
-        {["all", ...ROLES].map(r => { const meta = r !== "all" ? ROLE_META[r] : null; return (<button key={r} onClick={() => setRoleFilter(r)} className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition capitalize ${roleFilter===r ? r==="all" ? "bg-gray-900 text-white border-gray-900" : `${meta.bg} ${meta.color} ${meta.border} ring-2 ring-offset-1` : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>{meta && <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />}{r} <span className="opacity-60">({roleCounts[r]??0})</span></button>); })}
+        {["all", ...ROLES].map(r => {
+          const meta = r !== "all" ? ROLE_META[r] : null;
+          return (
+            <button key={r} onClick={() => setRoleFilter(r)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold border transition capitalize
+                ${roleFilter===r
+                  ? r==="all" ? "bg-gray-900 text-white border-gray-900" : `${meta.bg} ${meta.color} ${meta.border} ring-2 ring-offset-1`
+                  : "bg-white border-gray-200 text-gray-500 hover:border-gray-300"}`}>
+              {meta && <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />}
+              {r} <span className="opacity-60">({roleCounts[r]??0})</span>
+            </button>
+          );
+        })}
       </div>
-      <div className="flex gap-3 flex-wrap"><SearchBar value={search} onChange={setSearch} placeholder="Search by name, email or username…" /></div>
-      {loading ? <Skeleton rows={6} cols={5} /> : filtered.length === 0 ? <EmptyState icon={Users} title="No users found" subtitle="Try adjusting your search or filter" /> : (
+
+      <div className="flex gap-3 flex-wrap">
+        <SearchBar value={search} onChange={setSearch} placeholder="Search by name, email or username…" />
+      </div>
+
+      {loading ? <Skeleton rows={6} cols={4} /> : filtered.length === 0 ? (
+        <EmptyState icon={Users} title="No users found" subtitle="Try adjusting your search or filter" />
+      ) : (
         <>
           <div className="space-y-2">
-            {paged.map(user => { const meta = ROLE_META[user.role] || ROLE_META.guest; return (
-              <div key={user._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 hover:border-gray-200 transition">
-                <img src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullname||"U")}&background=6366f1&color=fff&size=44`} alt={user.fullname} className="w-11 h-11 rounded-xl object-cover border border-gray-100 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap"><p className="font-semibold text-gray-900 text-sm truncate">{user.fullname}</p><span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.bg} ${meta.color} ${meta.border}`}><span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}/>{user.role}</span></div>
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">{user.email}</p>
-                  <p className="text-xs text-gray-300 mt-0.5">@{user.username} · Joined {fmtDate(user.createdAt)}</p>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="relative">
-                    <select value={user.role} onChange={e => handleRoleChange(user._id, e.target.value)} disabled={updating===user._id} className="pl-3 pr-7 py-1.5 text-xs font-semibold border border-gray-200 rounded-xl bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-400 cursor-pointer disabled:opacity-50 appearance-none">
-                      {ROLES.map(r => <option key={r} value={r} className="capitalize">{r.charAt(0).toUpperCase()+r.slice(1)}</option>)}
-                    </select>
-                    {updating===user._id ? <RefreshCw className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-gray-400 pointer-events-none" /> : <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />}
+            {paged.map(user => {
+              const meta = ROLE_META[user.role] || ROLE_META.guest;
+              return (
+                <div key={user._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 hover:border-gray-200 transition">
+                  <button
+                    onClick={() => navigate(`/profile/${user._id}`)}
+                    title="View profile"
+                    className="shrink-0 relative group focus:outline-none"
+                  >
+                    <img
+                      src={user.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.fullname||"U")}&background=6366f1&color=fff&size=44`}
+                      alt={user.fullname}
+                      className="w-11 h-11 rounded-xl object-cover border border-gray-100 group-hover:ring-2 group-hover:ring-rose-400 transition"
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl opacity-0 group-hover:opacity-100 transition">
+                      <Eye className="w-4 h-4 text-white" />
+                    </span>
+                  </button>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => navigate(`/profile/${user._id}`)}
+                        className="font-semibold text-gray-900 text-sm hover:text-rose-600 transition truncate"
+                      >
+                        {user.fullname}
+                      </button>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.bg} ${meta.color} ${meta.border}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}/>{user.role}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-0.5 truncate">{user.email}</p>
+                    <p className="text-xs text-gray-300 mt-0.5">@{user.username} · Joined {fmtDate(user.createdAt)}</p>
                   </div>
-                  <button onClick={() => setDeleteTarget(user)} className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"><Trash2 className="w-3.5 h-3.5" /></button>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => setDeleteTarget(user)}
+                      className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ); })}
+              );
+            })}
           </div>
           <Pagination page={page} total={filtered.length} perPage={PER_PAGE} onChange={setPage} />
         </>
       )}
-      <ConfirmModal open={!!deleteTarget} onClose={() => setDeleteTarget(null)} onConfirm={handleDelete} loading={deleting} title={`Delete ${deleteTarget?.fullname}?`} message="This permanently deletes the user account and all associated data. This cannot be undone." confirmLabel="Delete user" danger />
+
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        loading={deleting}
+        title={`Delete ${deleteTarget?.fullname}?`}
+        message="This permanently deletes the user account and all associated data. This cannot be undone."
+        confirmLabel="Delete user"
+        danger
+      />
     </div>
   );
 }
@@ -355,46 +437,120 @@ function ListingsTab({ listings, loading, onRefresh, navigate, showToast }) {
   const [sort, setSort] = useState("newest");
   const [statusUpdating, setStatusUpdating] = useState(null);
   const PER_PAGE = 8;
+
   useEffect(() => { setLocalList(listings); }, [listings]);
   useEffect(() => { setPage(1); }, [search, sort]);
-  const filtered = localList.filter(l => { if (!search.trim()) return true; const q = search.toLowerCase(); return (l.title||"").toLowerCase().includes(q)||(l.location?.city||"").toLowerCase().includes(q)||(l.location?.country||"").toLowerCase().includes(q); }).sort((a, b) => { if (sort==="newest") return new Date(b.createdAt)-new Date(a.createdAt); if (sort==="price_h") return (b.price||0)-(a.price||0); if (sort==="price_l") return (a.price||0)-(b.price||0); if (sort==="rating") return (b.averageRating||0)-(a.averageRating||0); return 0; });
+
+  const filtered = localList
+    .filter(l => {
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (l.title||"").toLowerCase().includes(q)
+        || (l.location?.city||"").toLowerCase().includes(q)
+        || (l.location?.country||"").toLowerCase().includes(q);
+    })
+    .sort((a, b) => {
+      if (sort==="newest") return new Date(b.createdAt)-new Date(a.createdAt);
+      if (sort==="price_h") return (b.price||0)-(a.price||0);
+      if (sort==="price_l") return (a.price||0)-(b.price||0);
+      if (sort==="rating") return (b.averageRating||0)-(a.averageRating||0);
+      return 0;
+    });
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
-  const handleStatusUpdate = async (listingId, status) => { setStatusUpdating(listingId); try { await adminUpdateListingStatus(listingId, status); setLocalList(prev => prev.map(l => l._id===listingId ? {...l,status} : l)); showToast(`Listing ${status}`, "success"); } catch { showToast("Failed to update status", "error"); } finally { setStatusUpdating(null); } };
-  const handleDelete = async () => { if (!deleteTarget) return; setDeleting(true); try { await adminDeleteListing(deleteTarget._id); setLocalList(prev => prev.filter(l => l._id!==deleteTarget._id)); showToast("Listing deleted", "success"); setDeleteTarget(null); } catch { showToast("Failed to delete listing", "error"); } finally { setDeleting(false); } };
+
+  const handleStatusUpdate = async (listingId, status) => {
+    setStatusUpdating(listingId);
+    try {
+      await adminUpdateListingStatus(listingId, status);
+      setLocalList(prev => prev.map(l => l._id===listingId ? {...l,status} : l));
+      showToast(`Listing ${status}`, "success");
+    } catch { showToast("Failed to update status", "error"); }
+    finally { setStatusUpdating(null); }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await adminDeleteListing(deleteTarget._id);
+      setLocalList(prev => prev.filter(l => l._id!==deleteTarget._id));
+      showToast("Listing deleted", "success");
+      setDeleteTarget(null);
+    } catch { showToast("Failed to delete listing", "error"); }
+    finally { setDeleting(false); }
+  };
+
   return (
     <div className="tab-content space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Listings</h1><p className="text-sm text-gray-500 mt-0.5">{localList.length} properties on the platform</p></div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Listings</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{localList.length} properties on the platform</p>
+        </div>
         <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition"><RefreshCw className="w-4 h-4" /></button>
       </div>
       <div className="flex gap-3 flex-wrap">
         <SearchBar value={search} onChange={setSearch} placeholder="Search by title, city or country…" />
         <select value={sort} onChange={e => setSort(e.target.value)} className="px-3 py-2.5 bg-white border border-gray-200 rounded-2xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-sm font-medium cursor-pointer">
-          <option value="newest">Newest first</option><option value="price_h">Price: high to low</option><option value="price_l">Price: low to high</option><option value="rating">Highest rated</option>
+          <option value="newest">Newest first</option>
+          <option value="price_h">Price: high to low</option>
+          <option value="price_l">Price: low to high</option>
+          <option value="rating">Highest rated</option>
         </select>
       </div>
-      {loading ? <Skeleton rows={5} cols={4} /> : filtered.length === 0 ? <EmptyState icon={Home} title="No listings found" subtitle="Try adjusting your search" /> : (
+      {loading ? <Skeleton rows={5} cols={4} /> : filtered.length === 0 ? (
+        <EmptyState icon={Home} title="No listings found" subtitle="Try adjusting your search" />
+      ) : (
         <>
           <div className="space-y-3">
-            {paged.map(listing => { const images = Array.isArray(listing.images) ? listing.images.flatMap(img => img?.includes(",") ? img.split(",") : [img]) : []; const host = listing.host; return (
-              <div key={listing._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:border-gray-200 transition flex flex-col sm:flex-row">
-                <div className="sm:w-40 h-36 sm:h-auto shrink-0 bg-gray-100 relative">{images[0] ? <img src={images[0]} alt={listing.title} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><Home className="w-8 h-8 text-gray-300" /></div>}{listing.averageRating>0 && (<div className="absolute top-2 right-2 flex items-center gap-0.5 bg-white/90 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm"><Star className="w-3 h-3 fill-amber-400 text-amber-400" /><span className="text-xs font-bold text-gray-900">{Number(listing.averageRating).toFixed(1)}</span></div>)}</div>
-                <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
-                  <div>
-                    <div className="flex items-start justify-between gap-3 flex-wrap"><div className="min-w-0"><h3 className="font-semibold text-gray-900 truncate" style={{ fontFamily: "'Fraunces', serif" }}>{listing.title}</h3><p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3 shrink-0" />{listing.location?.city}, {listing.location?.country}</p></div><p className="font-bold text-gray-900 text-sm shrink-0">${listing.price}<span className="text-xs text-gray-400 font-normal">/night</span></p></div>
-                    {host && (<div className="flex items-center gap-2 mt-2"><img src={host.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(host.fullname||"H")}&background=f43f5e&color=fff&size=24`} alt={host.fullname} className="w-5 h-5 rounded-full object-cover" /><p className="text-xs text-gray-500">by <span className="font-medium text-gray-700">{host.fullname}</span></p></div>)}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-400"><span>{listing.bedrooms}bed</span><span>·</span><span>{listing.bathrooms}bath</span><span>·</span><span>{listing.maxGuests} guests</span><span>·</span><span className="text-gray-300">{fmtDate(listing.createdAt)}</span></div>
+            {paged.map(listing => {
+              const images = Array.isArray(listing.images)
+                ? listing.images.flatMap(img => img?.includes(",") ? img.split(",") : [img])
+                : [];
+              const host = listing.host;
+              return (
+                <div key={listing._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:border-gray-200 transition flex flex-col sm:flex-row">
+                  <div className="sm:w-40 h-36 sm:h-auto shrink-0 bg-gray-100 relative">
+                    {images[0]
+                      ? <img src={images[0]} alt={listing.title} className="w-full h-full object-cover" />
+                      : <div className="w-full h-full flex items-center justify-center"><Home className="w-8 h-8 text-gray-300" /></div>}
+                    {listing.averageRating>0 && (
+                      <div className="absolute top-2 right-2 flex items-center gap-0.5 bg-white/90 backdrop-blur-sm rounded-full px-2 py-0.5 shadow-sm">
+                        <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
+                        <span className="text-xs font-bold text-gray-900">{Number(listing.averageRating).toFixed(1)}</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-50 flex-wrap">
-                    <button onClick={() => navigate(`/listing/${listing._id}`)} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 border border-gray-200 px-3 py-1.5 rounded-xl hover:border-rose-300 hover:text-rose-500 transition"><ExternalLink className="w-3 h-3" /> View</button>
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${listing.status==="approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : listing.status==="rejected" ? "bg-red-50 text-red-600 border-red-200" : listing.status==="inactive" ? "bg-gray-100 text-gray-500 border-gray-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>{listing.status}</span>
-                    {listing.status!=="approved" && (<button onClick={() => handleStatusUpdate(listing._id,"approved")} disabled={statusUpdating===listing._id} className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 border border-emerald-200 px-3 py-1.5 rounded-xl hover:bg-emerald-50 transition disabled:opacity-50">{statusUpdating===listing._id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</button>)}
-                    {listing.status!=="rejected" && (<button onClick={() => handleStatusUpdate(listing._id,"rejected")} disabled={statusUpdating===listing._id} className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 border border-red-100 px-3 py-1.5 rounded-xl hover:bg-red-50 transition disabled:opacity-50"><XCircle className="w-3 h-3" /> Reject</button>)}
-                    <button onClick={() => setDeleteTarget(listing)} className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 border border-red-100 px-3 py-1.5 rounded-xl hover:bg-red-50 hover:border-red-200 transition ml-auto"><Trash2 className="w-3 h-3" /> Delete</button>
+                  <div className="flex-1 p-4 flex flex-col justify-between min-w-0">
+                    <div>
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate" style={{ fontFamily: "'Fraunces', serif" }}>{listing.title}</h3>
+                          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3 shrink-0" />{listing.location?.city}, {listing.location?.country}</p>
+                        </div>
+                        <p className="font-bold text-gray-900 text-sm shrink-0">${listing.price}<span className="text-xs text-gray-400 font-normal">/night</span></p>
+                      </div>
+                      {host && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <img src={host.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(host.fullname||"H")}&background=f43f5e&color=fff&size=24`} alt={host.fullname} className="w-5 h-5 rounded-full object-cover" />
+                          <p className="text-xs text-gray-500">by <span className="font-medium text-gray-700">{host.fullname}</span></p>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                        <span>{listing.bedrooms}bed</span><span>·</span><span>{listing.bathrooms}bath</span><span>·</span><span>{listing.maxGuests} guests</span><span>·</span><span className="text-gray-300">{fmtDate(listing.createdAt)}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-50 flex-wrap">
+                      <button onClick={() => navigate(`/listing/${listing._id}`)} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 border border-gray-200 px-3 py-1.5 rounded-xl hover:border-rose-300 hover:text-rose-500 transition"><ExternalLink className="w-3 h-3" /> View</button>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${listing.status==="approved" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : listing.status==="rejected" ? "bg-red-50 text-red-600 border-red-200" : listing.status==="inactive" ? "bg-gray-100 text-gray-500 border-gray-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>{listing.status}</span>
+                      {listing.status!=="approved" && (<button onClick={() => handleStatusUpdate(listing._id,"approved")} disabled={statusUpdating===listing._id} className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 border border-emerald-200 px-3 py-1.5 rounded-xl hover:bg-emerald-50 transition disabled:opacity-50">{statusUpdating===listing._id ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</button>)}
+                      {listing.status!=="rejected" && (<button onClick={() => handleStatusUpdate(listing._id,"rejected")} disabled={statusUpdating===listing._id} className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 border border-red-100 px-3 py-1.5 rounded-xl hover:bg-red-50 transition disabled:opacity-50"><XCircle className="w-3 h-3" /> Reject</button>)}
+                      <button onClick={() => setDeleteTarget(listing)} className="inline-flex items-center gap-1 text-xs font-semibold text-red-500 border border-red-100 px-3 py-1.5 rounded-xl hover:bg-red-50 hover:border-red-200 transition ml-auto"><Trash2 className="w-3 h-3" /> Delete</button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ); })}
+              );
+            })}
           </div>
           <Pagination page={page} total={filtered.length} perPage={PER_PAGE} onChange={setPage} />
         </>
@@ -413,17 +569,33 @@ function BookingsTab({ bookings, loading, onRefresh, showToast }) {
   const [page, setPage] = useState(1);
   const [localBk, setLocalBk] = useState(bookings);
   const PER_PAGE = 10;
+
   useEffect(() => { setLocalBk(bookings); }, [bookings]);
   useEffect(() => { setPage(1); }, [search, statusFilter]);
-  const filtered = localBk.filter(b => statusFilter==="all"||b.status===statusFilter).filter(b => { if (!search.trim()) return true; const q=search.toLowerCase(); const guest=b.user; return (b.listing?.title||"").toLowerCase().includes(q)||(guest?.fullname||"").toLowerCase().includes(q)||(guest?.email||"").toLowerCase().includes(q); }).sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt));
+
+  const filtered = localBk
+    .filter(b => statusFilter==="all"||b.status===statusFilter)
+    .filter(b => {
+      if (!search.trim()) return true;
+      const q=search.toLowerCase();
+      const guest=b.user;
+      return (b.listing?.title||"").toLowerCase().includes(q)
+        || (guest?.fullname||"").toLowerCase().includes(q)
+        || (guest?.email||"").toLowerCase().includes(q);
+    })
+    .sort((a,b) => new Date(b.createdAt)-new Date(a.createdAt));
   const paged = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
   const totalRevenue = localBk.filter(b=>b.status==="confirmed").reduce((s,b)=>s+(b.totalPrice||0),0);
   const STATUSES = ["all","pending","confirmed","cancelled","rejected"];
   const counts = Object.fromEntries(STATUSES.map(s=>[s,s==="all"?localBk.length:localBk.filter(b=>b.status===s).length]));
+
   return (
     <div className="tab-content space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Bookings</h1><p className="text-sm text-gray-500 mt-0.5">{localBk.length} total · {fmtMoney(totalRevenue)} confirmed revenue</p></div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Bookings</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{localBk.length} total · {fmtMoney(totalRevenue)} confirmed revenue</p>
+        </div>
         <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition"><RefreshCw className="w-4 h-4" /></button>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -438,15 +610,39 @@ function BookingsTab({ bookings, loading, onRefresh, showToast }) {
       {loading ? <Skeleton rows={7} cols={5} /> : filtered.length===0 ? <EmptyState icon={Calendar} title="No bookings found" subtitle="Try adjusting your filters" /> : (
         <>
           <div className="space-y-2">
-            {paged.map(b => { const guest=b.user; const listing=b.listing; const meta=STATUS_META[b.status]||STATUS_META.pending; const n=nights(b.checkIn,b.checkOut); const isPending=b.status==="pending"; const images=Array.isArray(listing?.images)?listing.images.flatMap(img=>img?.includes(",")?img.split(","):[img]):[];
+            {paged.map(b => {
+              const guest=b.user; const listing=b.listing;
+              const meta=STATUS_META[b.status]||STATUS_META.pending;
+              const n=nights(b.checkIn,b.checkOut);
+              const isPending=b.status==="pending";
+              const images=Array.isArray(listing?.images)?listing.images.flatMap(img=>img?.includes(",")?img.split(","):[img]):[];
               return (
                 <div key={b._id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition hover:border-gray-200 ${isPending?"border-amber-200":"border-gray-100"}`}>
                   {isPending && <div className="h-0.5 bg-gradient-to-r from-amber-400 to-orange-400" />}
                   <div className="p-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                    <div className="flex items-center gap-3 sm:w-48 shrink-0"><img src={guest?.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(guest?.fullname||"G")}&background=6366f1&color=fff&size=40`} alt={guest?.fullname} className="w-10 h-10 rounded-xl object-cover shrink-0" /><div className="min-w-0"><p className="text-sm font-semibold text-gray-900 truncate">{guest?.fullname||"Guest"}</p><p className="text-xs text-gray-400 truncate">{guest?.email}</p></div></div>
-                    <div className="flex items-center gap-2 flex-1 min-w-0">{images[0]&&<img src={images[0]} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0"/>}<div className="min-w-0"><p className="text-sm font-semibold text-gray-900 truncate" style={{ fontFamily:"'Fraunces', serif" }}>{listing?.title||"Listing removed"}</p><p className="text-xs text-gray-400">{fmtDate(b.checkIn)} → {fmtDate(b.checkOut)} · {n}n</p></div></div>
-                    <div className="text-right shrink-0"><p className="font-bold text-gray-900">{fmtMoney(b.totalPrice)}</p><p className="text-xs text-gray-400">{fmtRel(b.createdAt)}</p></div>
-                    <div className="flex items-center gap-2 flex-wrap shrink-0"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${meta.bg} ${meta.color} ${meta.border}`}><span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}/>{b.status}</span></div>
+                    <div className="flex items-center gap-3 sm:w-48 shrink-0">
+                      <img src={guest?.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(guest?.fullname||"G")}&background=6366f1&color=fff&size=40`} alt={guest?.fullname} className="w-10 h-10 rounded-xl object-cover shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{guest?.fullname||"Guest"}</p>
+                        <p className="text-xs text-gray-400 truncate">{guest?.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {images[0]&&<img src={images[0]} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0"/>}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate" style={{ fontFamily:"'Fraunces', serif" }}>{listing?.title||"Listing removed"}</p>
+                        <p className="text-xs text-gray-400">{fmtDate(b.checkIn)} → {fmtDate(b.checkOut)} · {n}n</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-gray-900">{fmtMoney(b.totalPrice)}</p>
+                      <p className="text-xs text-gray-400">{fmtRel(b.createdAt)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap shrink-0">
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${meta.bg} ${meta.color} ${meta.border}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}/>{b.status}
+                      </span>
+                    </div>
                   </div>
                 </div>
               );
@@ -470,17 +666,38 @@ function ReviewsTab({ reviews, loading, onRefresh, showToast }) {
   const [deleting, setDeleting] = useState(false);
   const [localRevs, setLocalRevs] = useState(reviews);
   const PER_PAGE = 10;
+
   useEffect(() => { setLocalRevs(reviews); }, [reviews]);
   useEffect(() => { setPage(1); }, [search, ratingFilter]);
-  const filtered = localRevs.filter(r=>ratingFilter===0||r.rating===ratingFilter).filter(r=>{if(!search.trim())return true;const q=search.toLowerCase();return(r.review||"").toLowerCase().includes(q)||(r.user?.fullname||"").toLowerCase().includes(q)||(r.listing?.title||"").toLowerCase().includes(q);}).sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
+
+  const filtered = localRevs
+    .filter(r=>ratingFilter===0||r.rating===ratingFilter)
+    .filter(r=>{if(!search.trim())return true;const q=search.toLowerCase();return(r.review||"").toLowerCase().includes(q)||(r.user?.fullname||"").toLowerCase().includes(q)||(r.listing?.title||"").toLowerCase().includes(q);})
+    .sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
   const paged = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE);
-  const handleDelete = async () => { if (!deleteTarget) return; setDeleting(true); try { await adminDeleteReview(deleteTarget._id); setLocalRevs(prev=>prev.filter(r=>r._id!==deleteTarget._id)); showToast("Review deleted","success"); setDeleteTarget(null); } catch { showToast("Failed to delete review","error"); } finally { setDeleting(false); } };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await adminDeleteReview(deleteTarget._id);
+      setLocalRevs(prev=>prev.filter(r=>r._id!==deleteTarget._id));
+      showToast("Review deleted","success");
+      setDeleteTarget(null);
+    } catch { showToast("Failed to delete review","error"); }
+    finally { setDeleting(false); }
+  };
+
   const avgRating = localRevs.length ? (localRevs.reduce((s,r)=>s+r.rating,0)/localRevs.length).toFixed(1) : "—";
   const dist = [5,4,3,2,1].map(s=>({star:s,count:localRevs.filter(r=>r.rating===s).length,pct:localRevs.length?Math.round(localRevs.filter(r=>r.rating===s).length/localRevs.length*100):0}));
+
   return (
     <div className="tab-content space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div><h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Reviews</h1><p className="text-sm text-gray-500 mt-0.5">{localRevs.length} reviews · {avgRating}★ average</p></div>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Reviews</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{localRevs.length} reviews · {avgRating}★ average</p>
+        </div>
         <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition"><RefreshCw className="w-4 h-4" /></button>
       </div>
       <div className="flex gap-5 flex-col lg:flex-row">
@@ -490,7 +707,10 @@ function ReviewsTab({ reviews, loading, onRefresh, showToast }) {
             <div className="space-y-2">
               {dist.map(({star,count,pct}) => (<button key={star} onClick={()=>setRatingFilter(ratingFilter===star?0:star)} className={`w-full flex items-center gap-2 rounded-xl px-2 py-1.5 transition-all text-left ${ratingFilter===star?"bg-amber-50 ring-1 ring-amber-200":"hover:bg-gray-50"}`}><span className="text-xs font-bold text-gray-400 w-3 shrink-0">{star}</span><Star className="w-3 h-3 fill-amber-400 text-amber-400 shrink-0"/><div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-amber-400 rounded-full" style={{width:`${pct}%`}}/></div><span className="text-xs text-gray-400 shrink-0 w-5 text-right">{count}</span></button>))}
             </div>
-            <div className="mt-4 pt-4 border-t border-gray-100 text-center"><p className="text-3xl font-bold text-amber-500" style={{ fontFamily: "'Fraunces', serif" }}>{avgRating}</p><p className="text-xs text-gray-400 mt-1">platform average</p></div>
+            <div className="mt-4 pt-4 border-t border-gray-100 text-center">
+              <p className="text-3xl font-bold text-amber-500" style={{ fontFamily: "'Fraunces', serif" }}>{avgRating}</p>
+              <p className="text-xs text-gray-400 mt-1">platform average</p>
+            </div>
           </div>
         </div>
         <div className="flex-1 min-w-0 space-y-4">
@@ -501,20 +721,35 @@ function ReviewsTab({ reviews, loading, onRefresh, showToast }) {
           {loading ? <Skeleton rows={5} cols={3}/> : filtered.length===0 ? <EmptyState icon={Star} title="No reviews found" subtitle="Try adjusting your search or filter"/> : (
             <>
               <div className="space-y-3">
-                {paged.map(r => { const listing=r.listing; const user=r.user; const RATING_COLORS=["","text-red-500","text-orange-400","text-yellow-500","text-emerald-500","text-rose-500"]; const RATING_LABELS=["","Poor","Fair","Good","Very Good","Excellent"]; return (
-                  <div key={r._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-gray-200 transition">
-                    <div className="flex gap-4 items-start">
-                      <img src={user?.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullname||"U")}&background=6366f1&color=fff&size=40`} alt={user?.fullname} className="w-10 h-10 rounded-xl object-cover shrink-0"/>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <div className="min-w-0"><div className="flex items-center gap-2 flex-wrap"><p className="text-sm font-semibold text-gray-900">{user?.fullname||"User"}</p><div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=>(<Star key={s} className={`w-3 h-3 ${s<=r.rating?"fill-amber-400 text-amber-400":"fill-gray-200 text-gray-200"}`}/>))}</div><span className={`text-xs font-bold ${RATING_COLORS[r.rating]}`}>{RATING_LABELS[r.rating]}</span></div>{listing&&(<p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1"><Home className="w-3 h-3 shrink-0"/><span className="truncate">{listing.title}</span></p>)}</div>
-                          <div className="flex items-center gap-2 shrink-0"><span className="text-xs text-gray-400">{fmtRel(r.createdAt)}</span><button onClick={()=>setDeleteTarget(r)} className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"><Trash2 className="w-3.5 h-3.5"/></button></div>
+                {paged.map(r => {
+                  const listing=r.listing; const user=r.user;
+                  const RATING_COLORS=["","text-red-500","text-orange-400","text-yellow-500","text-emerald-500","text-rose-500"];
+                  const RATING_LABELS=["","Poor","Fair","Good","Very Good","Excellent"];
+                  return (
+                    <div key={r._id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 hover:border-gray-200 transition">
+                      <div className="flex gap-4 items-start">
+                        <img src={user?.avatar||`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullname||"U")}&background=6366f1&color=fff&size=40`} alt={user?.fullname} className="w-10 h-10 rounded-xl object-cover shrink-0"/>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-gray-900">{user?.fullname||"User"}</p>
+                                <div className="flex items-center gap-0.5">{[1,2,3,4,5].map(s=>(<Star key={s} className={`w-3 h-3 ${s<=r.rating?"fill-amber-400 text-amber-400":"fill-gray-200 text-gray-200"}`}/>))}</div>
+                                <span className={`text-xs font-bold ${RATING_COLORS[r.rating]}`}>{RATING_LABELS[r.rating]}</span>
+                              </div>
+                              {listing&&(<p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1"><Home className="w-3 h-3 shrink-0"/><span className="truncate">{listing.title}</span></p>)}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-xs text-gray-400">{fmtRel(r.createdAt)}</span>
+                              <button onClick={()=>setDeleteTarget(r)} className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"><Trash2 className="w-3.5 h-3.5"/></button>
+                            </div>
+                          </div>
+                          <p className="text-sm text-gray-600 leading-relaxed mt-2.5"><Quote className="w-3 h-3 text-gray-300 inline mr-1"/>{r.review}</p>
                         </div>
-                        <p className="text-sm text-gray-600 leading-relaxed mt-2.5"><Quote className="w-3 h-3 text-gray-300 inline mr-1"/>{r.review}</p>
                       </div>
                     </div>
-                  </div>
-                ); })}
+                  );
+                })}
               </div>
               <Pagination page={page} total={filtered.length} perPage={PER_PAGE} onChange={setPage}/>
             </>
@@ -527,39 +762,24 @@ function ReviewsTab({ reviews, loading, onRefresh, showToast }) {
 }
 
 /* ════════════════════════════════════════════════════════════════════
-   SETTINGS TAB — full CRUD for categories & amenities
+   SETTINGS TAB
 ════════════════════════════════════════════════════════════════════ */
-
 function CategoryForm({ initial, onSave, onClose, saving }) {
   const [name, setName] = useState(initial?.name || "");
   const [icon, setIcon] = useState(initial?.icon || "");
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!name.trim() || !icon.trim()) return;
-    onSave({ name: name.trim(), icon: icon.trim() });
-  };
-
+  const handleSubmit = (e) => { e.preventDefault(); if (!name.trim() || !icon.trim()) return; onSave({ name: name.trim(), icon: icon.trim() }); };
   const EMOJI_SUGGESTIONS = ["🏢","🏰","🌾","🎨","👥","🌲","🏕️","🏡","🌊","🏖️","🏔️","🌆","🏠","🏗️","🛖","⛺"];
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category Name *</label>
-        <input value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. Villa"
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50" />
+        <input value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. Villa" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50" />
       </div>
       <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1.5">Icon (emoji) *</label>
-        <input value={icon} onChange={e => setIcon(e.target.value)} required placeholder="e.g. 🏰"
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 text-lg" />
+        <input value={icon} onChange={e => setIcon(e.target.value)} required placeholder="e.g. 🏰" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 text-lg" />
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {EMOJI_SUGGESTIONS.map(em => (
-            <button key={em} type="button" onClick={() => setIcon(em)}
-              className={`text-lg p-1.5 rounded-lg border transition hover:border-rose-300 ${icon===em?"border-rose-400 bg-rose-50":"border-gray-200 bg-white"}`}>
-              {em}
-            </button>
-          ))}
+          {EMOJI_SUGGESTIONS.map(em => (<button key={em} type="button" onClick={() => setIcon(em)} className={`text-lg p-1.5 rounded-lg border transition hover:border-rose-300 ${icon===em?"border-rose-400 bg-rose-50":"border-gray-200 bg-white"}`}>{em}</button>))}
         </div>
       </div>
       {icon && name && (
@@ -569,12 +789,8 @@ function CategoryForm({ initial, onSave, onClose, saving }) {
         </div>
       )}
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose}
-          className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
-          Cancel
-        </button>
-        <button type="submit" disabled={saving || !name.trim() || !icon.trim()}
-          className="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
+        <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+        <button type="submit" disabled={saving || !name.trim() || !icon.trim()} className="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
           {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
           {saving ? "Saving…" : initial ? "Update" : "Create"}
         </button>
@@ -587,62 +803,36 @@ function AmenityForm({ initial, onSave, onClose, saving }) {
   const [name, setName] = useState(initial?.name || "");
   const [icon, setIcon] = useState(initial?.icon || "");
   const [category, setCategory] = useState(initial?.category || "Basic");
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    onSave({ name: name.trim(), icon: icon.trim(), category });
-  };
-
+  const handleSubmit = (e) => { e.preventDefault(); if (!name.trim()) return; onSave({ name: name.trim(), icon: icon.trim(), category }); };
   const EMOJI_SUGGESTIONS = ["📶","🍳","🧺","❄️","🔥","📺","🏊","💪","🚨","🅿️","💻","☕","🍽️","🌿","🔑","🏖️","🎮","🎹","🔊","🌊"];
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1.5">Amenity Name *</label>
-        <input value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. Swimming Pool"
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50" />
+        <input value={name} onChange={e => setName(e.target.value)} required placeholder="e.g. Swimming Pool" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50" />
       </div>
       <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1.5">Category</label>
         <div className="grid grid-cols-2 gap-2">
-          {AMENITY_CATEGORIES.map(cat => (
-            <button key={cat} type="button" onClick={() => setCategory(cat)}
-              className={`py-2 text-xs font-semibold rounded-xl border transition ${category===cat?"bg-rose-500 text-white border-rose-500":"bg-white text-gray-600 border-gray-200 hover:border-rose-300"}`}>
-              {cat}
-            </button>
-          ))}
+          {AMENITY_CATEGORIES.map(cat => (<button key={cat} type="button" onClick={() => setCategory(cat)} className={`py-2 text-xs font-semibold rounded-xl border transition ${category===cat?"bg-rose-500 text-white border-rose-500":"bg-white text-gray-600 border-gray-200 hover:border-rose-300"}`}>{cat}</button>))}
         </div>
       </div>
       <div>
         <label className="block text-xs font-semibold text-gray-600 mb-1.5">Icon (emoji)</label>
-        <input value={icon} onChange={e => setIcon(e.target.value)} placeholder="e.g. 🏊"
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 text-lg" />
+        <input value={icon} onChange={e => setIcon(e.target.value)} placeholder="e.g. 🏊" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-gray-50 text-lg" />
         <div className="flex flex-wrap gap-1.5 mt-2">
-          {EMOJI_SUGGESTIONS.map(em => (
-            <button key={em} type="button" onClick={() => setIcon(em)}
-              className={`text-lg p-1.5 rounded-lg border transition hover:border-rose-300 ${icon===em?"border-rose-400 bg-rose-50":"border-gray-200 bg-white"}`}>
-              {em}
-            </button>
-          ))}
+          {EMOJI_SUGGESTIONS.map(em => (<button key={em} type="button" onClick={() => setIcon(em)} className={`text-lg p-1.5 rounded-lg border transition hover:border-rose-300 ${icon===em?"border-rose-400 bg-rose-50":"border-gray-200 bg-white"}`}>{em}</button>))}
         </div>
       </div>
       {name && (
         <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
           {icon && <span className="text-2xl">{icon}</span>}
-          <div>
-            <p className="text-sm font-semibold text-gray-900">{name}</p>
-            <p className="text-xs text-gray-400">{category} · Preview</p>
-          </div>
+          <div><p className="text-sm font-semibold text-gray-900">{name}</p><p className="text-xs text-gray-400">{category} · Preview</p></div>
         </div>
       )}
       <div className="flex gap-2 pt-2">
-        <button type="button" onClick={onClose}
-          className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">
-          Cancel
-        </button>
-        <button type="submit" disabled={saving || !name.trim()}
-          className="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
+        <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+        <button type="submit" disabled={saving || !name.trim()} className="flex-1 py-2.5 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-sm font-semibold transition disabled:opacity-50 flex items-center justify-center gap-2">
           {saving && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
           {saving ? "Saving…" : initial ? "Update" : "Create"}
         </button>
@@ -651,19 +841,15 @@ function AmenityForm({ initial, onSave, onClose, saving }) {
   );
 }
 
-/* ── Main Settings Tab ── */
 function SettingsTab({ categories, amenities, loading, onRefresh, showToast, setCategories, setAmenities }) {
   const [activePanel, setActivePanel] = useState("categories");
   const [catSearch,   setCatSearch]   = useState("");
   const [amSearch,    setAmSearch]    = useState("");
   const [amCatFilter, setAmCatFilter] = useState("All");
-
   const [drawer,  setDrawer]  = useState(null);
   const [saving,  setSaving]  = useState(false);
-
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting,     setDeleting]     = useState(false);
-
   const [toggling, setToggling] = useState(null);
 
   const filteredCats = categories.filter(c => (c.name||"").toLowerCase().includes(catSearch.toLowerCase()));
@@ -671,34 +857,23 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
     .filter(a => amCatFilter === "All" || a.category === amCatFilter)
     .filter(a => (a.name||"").toLowerCase().includes(amSearch.toLowerCase()));
 
-  /* ── Category CRUD ── */
   const handleCatSave = async (data) => {
     setSaving(true);
     try {
       if (drawer?.mode === "create") {
         const res = await createCategory(data);
         const created = extractData(res);
-        if (created?._id) {
-          setCategories(prev => [created, ...prev]);
-        } else {
-          // response shape unknown — reload from server
-          onRefresh();
-        }
+        if (created?._id) setCategories(prev => [created, ...prev]); else onRefresh();
         showToast("Category created", "success");
       } else {
         const res = await updateCategory(drawer.data._id, data);
         const updated = extractData(res);
-        if (updated?._id) {
-          setCategories(prev => prev.map(c => c._id === updated._id ? updated : c));
-        } else {
-          onRefresh();
-        }
+        if (updated?._id) setCategories(prev => prev.map(c => c._id === updated._id ? updated : c)); else onRefresh();
         showToast("Category updated", "success");
       }
       setDrawer(null);
-    } catch (err) {
-      showToast(err?.response?.data?.message || "Failed to save category", "error");
-    } finally { setSaving(false); }
+    } catch (err) { showToast(err?.response?.data?.message || "Failed to save category", "error"); }
+    finally { setSaving(false); }
   };
 
   const handleCatDelete = async () => {
@@ -706,11 +881,9 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
     try {
       await deleteCategory(deleteTarget.item._id);
       setCategories(prev => prev.filter(c => c._id !== deleteTarget.item._id));
-      showToast("Category deleted", "success");
-      setDeleteTarget(null);
-    } catch (err) {
-      showToast(err?.response?.data?.message || "Failed to delete", "error");
-    } finally { setDeleting(false); }
+      showToast("Category deleted", "success"); setDeleteTarget(null);
+    } catch (err) { showToast(err?.response?.data?.message || "Failed to delete", "error"); }
+    finally { setDeleting(false); }
   };
 
   const handleCatToggle = async (cat) => {
@@ -718,45 +891,30 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
     try {
       const res = await updateCategory(cat._id, { isActive: !cat.isActive });
       const updated = extractData(res);
-      if (updated?._id) {
-        setCategories(prev => prev.map(c => c._id === updated._id ? updated : c));
-      } else {
-        // optimistic fallback
-        setCategories(prev => prev.map(c => c._id === cat._id ? { ...c, isActive: !cat.isActive } : c));
-      }
+      if (updated?._id) setCategories(prev => prev.map(c => c._id === updated._id ? updated : c));
+      else setCategories(prev => prev.map(c => c._id === cat._id ? { ...c, isActive: !cat.isActive } : c));
       showToast(`Category ${!cat.isActive ? "activated" : "deactivated"}`, "success");
-    } catch {
-      showToast("Failed to update status", "error");
-    } finally { setToggling(null); }
+    } catch { showToast("Failed to update status", "error"); }
+    finally { setToggling(null); }
   };
 
-  /* ── Amenity CRUD ── */
   const handleAmSave = async (data) => {
     setSaving(true);
     try {
       if (drawer?.mode === "create") {
         const res = await createAmenity(data);
         const created = extractData(res);
-        if (created?._id) {
-          setAmenities(prev => [created, ...prev]);
-        } else {
-          onRefresh();
-        }
+        if (created?._id) setAmenities(prev => [created, ...prev]); else onRefresh();
         showToast("Amenity created", "success");
       } else {
         const res = await updateAmenity(drawer.data._id, data);
         const updated = extractData(res);
-        if (updated?._id) {
-          setAmenities(prev => prev.map(a => a._id === updated._id ? updated : a));
-        } else {
-          onRefresh();
-        }
+        if (updated?._id) setAmenities(prev => prev.map(a => a._id === updated._id ? updated : a)); else onRefresh();
         showToast("Amenity updated", "success");
       }
       setDrawer(null);
-    } catch (err) {
-      showToast(err?.response?.data?.message || "Failed to save amenity", "error");
-    } finally { setSaving(false); }
+    } catch (err) { showToast(err?.response?.data?.message || "Failed to save amenity", "error"); }
+    finally { setSaving(false); }
   };
 
   const handleAmDelete = async () => {
@@ -764,11 +922,9 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
     try {
       await deleteAmenity(deleteTarget.item._id);
       setAmenities(prev => prev.filter(a => a._id !== deleteTarget.item._id));
-      showToast("Amenity deleted", "success");
-      setDeleteTarget(null);
-    } catch (err) {
-      showToast(err?.response?.data?.message || "Failed to delete", "error");
-    } finally { setDeleting(false); }
+      showToast("Amenity deleted", "success"); setDeleteTarget(null);
+    } catch (err) { showToast(err?.response?.data?.message || "Failed to delete", "error"); }
+    finally { setDeleting(false); }
   };
 
   const handleAmToggle = async (am) => {
@@ -776,16 +932,11 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
     try {
       const res = await updateAmenity(am._id, { isActive: !am.isActive });
       const updated = extractData(res);
-      if (updated?._id) {
-        setAmenities(prev => prev.map(a => a._id === updated._id ? updated : a));
-      } else {
-        // optimistic fallback
-        setAmenities(prev => prev.map(a => a._id === am._id ? { ...a, isActive: !am.isActive } : a));
-      }
+      if (updated?._id) setAmenities(prev => prev.map(a => a._id === updated._id ? updated : a));
+      else setAmenities(prev => prev.map(a => a._id === am._id ? { ...a, isActive: !am.isActive } : a));
       showToast(`Amenity ${!am.isActive ? "activated" : "deactivated"}`, "success");
-    } catch {
-      showToast("Failed to update status", "error");
-    } finally { setToggling(null); }
+    } catch { showToast("Failed to update status", "error"); }
+    finally { setToggling(null); }
   };
 
   const handleDeleteConfirm = () => {
@@ -800,45 +951,33 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
           <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: "'Fraunces', serif" }}>Settings</h1>
           <p className="text-sm text-gray-500 mt-0.5">Manage categories and amenities</p>
         </div>
-        <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition">
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <button onClick={onRefresh} className="p-2.5 border border-gray-200 rounded-full text-gray-500 hover:text-rose-500 hover:border-rose-300 transition"><RefreshCw className="w-4 h-4" /></button>
       </div>
 
       <div className="flex gap-1 bg-gray-100 rounded-2xl p-1 w-fit">
-        {[
-          { id: "categories", label: "Categories", icon: Layers, count: categories.length },
-          { id: "amenities",  label: "Amenities",  icon: Zap,    count: amenities.length  },
-        ].map(({ id, label, icon: Icon, count }) => (
-          <button key={id} onClick={() => setActivePanel(id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition ${activePanel===id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+        {[{ id: "categories", label: "Categories", icon: Layers, count: categories.length },{ id: "amenities", label: "Amenities", icon: Zap, count: amenities.length }].map(({ id, label, icon: Icon, count }) => (
+          <button key={id} onClick={() => setActivePanel(id)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition ${activePanel===id ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
             <Icon className="w-4 h-4" /> {label}
             <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${activePanel===id ? "bg-rose-100 text-rose-600" : "bg-gray-200 text-gray-500"}`}>{count}</span>
           </button>
         ))}
       </div>
 
-      {/* ══ CATEGORIES PANEL ══ */}
       {activePanel === "categories" && (
         <div className="space-y-4">
           <div className="flex gap-3 flex-wrap items-center">
             <SearchBar value={catSearch} onChange={setCatSearch} placeholder="Search categories…" />
-            <button onClick={() => setDrawer({ type: "cat", mode: "create" })}
-              className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold rounded-2xl transition shadow-sm shadow-rose-200">
+            <button onClick={() => setDrawer({ type: "cat", mode: "create" })} className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold rounded-2xl transition shadow-sm shadow-rose-200">
               <Plus className="w-4 h-4" /> Add Category
             </button>
           </div>
-
           {loading ? <Skeleton rows={5} cols={3} /> : filteredCats.length === 0 ? (
             <EmptyState icon={Layers} title="No categories found" subtitle="Create your first category to get started" />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {filteredCats.map(cat => (
-                <div key={cat._id}
-                  className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-3 transition hover:border-gray-200 ${!cat.isActive ? "opacity-60" : "border-gray-100"}`}>
-                  <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-2xl shrink-0">
-                    {cat.icon}
-                  </div>
+                <div key={cat._id} className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-3 transition hover:border-gray-200 ${!cat.isActive ? "opacity-60" : "border-gray-100"}`}>
+                  <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-2xl shrink-0">{cat.icon}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{cat.name}</p>
                     <span className={`inline-flex items-center gap-1 mt-0.5 text-[10px] font-bold px-2 py-0.5 rounded-full ${cat.isActive ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
@@ -847,19 +986,11 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
                     </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => handleCatToggle(cat)} disabled={toggling === cat._id}
-                      title={cat.isActive ? "Deactivate" : "Activate"}
-                      className={`p-1.5 rounded-lg border transition disabled:opacity-40 ${cat.isActive ? "border-emerald-100 text-emerald-500 hover:bg-emerald-50" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
+                    <button onClick={() => handleCatToggle(cat)} disabled={toggling === cat._id} title={cat.isActive ? "Deactivate" : "Activate"} className={`p-1.5 rounded-lg border transition disabled:opacity-40 ${cat.isActive ? "border-emerald-100 text-emerald-500 hover:bg-emerald-50" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
                       {toggling === cat._id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : cat.isActive ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
                     </button>
-                    <button onClick={() => setDrawer({ type: "cat", mode: "edit", data: cat })}
-                      className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition">
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => setDeleteTarget({ type: "cat", item: cat })}
-                      className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <button onClick={() => setDrawer({ type: "cat", mode: "edit", data: cat })} className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition"><Edit2 className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => setDeleteTarget({ type: "cat", item: cat })} className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
               ))}
@@ -869,47 +1000,32 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
         </div>
       )}
 
-      {/* ══ AMENITIES PANEL ══ */}
       {activePanel === "amenities" && (
         <div className="space-y-4">
           <div className="flex gap-3 flex-wrap items-center">
             <SearchBar value={amSearch} onChange={setAmSearch} placeholder="Search amenities…" />
-            <button onClick={() => setDrawer({ type: "am", mode: "create" })}
-              className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold rounded-2xl transition shadow-sm shadow-rose-200">
+            <button onClick={() => setDrawer({ type: "am", mode: "create" })} className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold rounded-2xl transition shadow-sm shadow-rose-200">
               <Plus className="w-4 h-4" /> Add Amenity
             </button>
           </div>
-
           <div className="flex gap-2 flex-wrap">
             {["All", ...AMENITY_CATEGORIES].map(cat => (
-              <button key={cat} onClick={() => setAmCatFilter(cat)}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${amCatFilter===cat ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"}`}>
-                {cat}
-                <span className="ml-1 opacity-60">
-                  ({cat==="All" ? amenities.length : amenities.filter(a=>a.category===cat).length})
-                </span>
+              <button key={cat} onClick={() => setAmCatFilter(cat)} className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${amCatFilter===cat ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"}`}>
+                {cat} <span className="ml-1 opacity-60">({cat==="All" ? amenities.length : amenities.filter(a=>a.category===cat).length})</span>
               </button>
             ))}
           </div>
-
           {loading ? <Skeleton rows={6} cols={3} /> : filteredAms.length === 0 ? (
             <EmptyState icon={Zap} title="No amenities found" subtitle="Create your first amenity to get started" />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {filteredAms.map(am => (
-                <div key={am._id}
-                  className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-3 transition hover:border-gray-200 ${!am.isActive ? "opacity-60" : "border-gray-100"}`}>
-                  <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-2xl shrink-0">
-                    {am.icon || "✨"}
-                  </div>
+                <div key={am._id} className={`bg-white rounded-2xl border shadow-sm p-4 flex items-center gap-3 transition hover:border-gray-200 ${!am.isActive ? "opacity-60" : "border-gray-100"}`}>
+                  <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center text-2xl shrink-0">{am.icon || "✨"}</div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{am.name}</p>
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      {am.category && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500 border border-indigo-100">
-                          {am.category}
-                        </span>
-                      )}
+                      {am.category && (<span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500 border border-indigo-100">{am.category}</span>)}
                       <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${am.isActive ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${am.isActive ? "bg-emerald-400" : "bg-gray-300"}`} />
                         {am.isActive ? "Active" : "Inactive"}
@@ -917,19 +1033,11 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => handleAmToggle(am)} disabled={toggling === am._id}
-                      title={am.isActive ? "Deactivate" : "Activate"}
-                      className={`p-1.5 rounded-lg border transition disabled:opacity-40 ${am.isActive ? "border-emerald-100 text-emerald-500 hover:bg-emerald-50" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
+                    <button onClick={() => handleAmToggle(am)} disabled={toggling === am._id} title={am.isActive ? "Deactivate" : "Activate"} className={`p-1.5 rounded-lg border transition disabled:opacity-40 ${am.isActive ? "border-emerald-100 text-emerald-500 hover:bg-emerald-50" : "border-gray-200 text-gray-400 hover:bg-gray-50"}`}>
                       {toggling === am._id ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : am.isActive ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
                     </button>
-                    <button onClick={() => setDrawer({ type: "am", mode: "edit", data: am })}
-                      className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition">
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => setDeleteTarget({ type: "am", item: am })}
-                      className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    <button onClick={() => setDrawer({ type: "am", mode: "edit", data: am })} className="p-1.5 border border-gray-200 rounded-lg text-gray-400 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50 transition"><Edit2 className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => setDeleteTarget({ type: "am", item: am })} className="p-1.5 border border-red-100 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
               ))}
@@ -939,7 +1047,6 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
         </div>
       )}
 
-      {/* Platform Info */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-2xl p-6 text-white">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center"><Database className="w-5 h-5" /></div>
@@ -956,7 +1063,6 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
         </div>
       </div>
 
-      {/* Drawer */}
       <CrudDrawer
         open={!!drawer}
         onClose={() => { if (!saving) setDrawer(null); }}
@@ -966,38 +1072,17 @@ function SettingsTab({ categories, amenities, loading, onRefresh, showToast, set
             ? drawer.mode === "create" ? "Add New Category" : `Edit: ${drawer.data?.name ?? ""}`
             : drawer.mode === "create" ? "Add New Amenity"  : `Edit: ${drawer.data?.name ?? ""}`
         }>
-        {drawer?.type === "cat" && (
-          <CategoryForm
-            key={drawer.data?._id || "new-cat"}
-            initial={drawer.data}
-            onSave={handleCatSave}
-            onClose={() => setDrawer(null)}
-            saving={saving}
-          />
-        )}
-        {drawer?.type === "am" && (
-          <AmenityForm
-            key={drawer.data?._id || "new-am"}
-            initial={drawer.data}
-            onSave={handleAmSave}
-            onClose={() => setDrawer(null)}
-            saving={saving}
-          />
-        )}
+        {drawer?.type === "cat" && (<CategoryForm key={drawer.data?._id || "new-cat"} initial={drawer.data} onSave={handleCatSave} onClose={() => setDrawer(null)} saving={saving} />)}
+        {drawer?.type === "am"  && (<AmenityForm  key={drawer.data?._id || "new-am"}  initial={drawer.data} onSave={handleAmSave}  onClose={() => setDrawer(null)} saving={saving} />)}
       </CrudDrawer>
 
-      {/* Delete Confirm */}
       <ConfirmModal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDeleteConfirm}
         loading={deleting}
         title={`Delete "${deleteTarget?.item?.name}"?`}
-        message={
-          deleteTarget?.type === "cat"
-            ? "Deleting this category may affect existing listings that use it."
-            : "This amenity will be removed from all listings that reference it."
-        }
+        message={deleteTarget?.type === "cat" ? "Deleting this category may affect existing listings that use it." : "This amenity will be removed from all listings that reference it."}
         confirmLabel="Delete"
         danger
       />
@@ -1181,7 +1266,7 @@ export default function AdminPanel() {
         {/* MAIN CONTENT */}
         <main className="flex-1 min-w-0">
           {activeTab === "dashboard" && <DashboardTab stats={{}} users={users} listings={listings} bookings={bookings} navigate={navigate} setActiveTab={setActiveTab} />}
-          {activeTab === "users"     && <UsersTab users={users} loading={loadingUsers} onRefresh={loadUsers} showToast={showToast} />}
+          {activeTab === "users"     && <UsersTab users={users} loading={loadingUsers} onRefresh={loadUsers} showToast={showToast} navigate={navigate} />}
           {activeTab === "listings"  && <ListingsTab listings={listings} loading={loadingListings} onRefresh={loadListings} navigate={navigate} showToast={showToast} />}
           {activeTab === "bookings"  && <BookingsTab bookings={bookings} loading={loadingBookings} onRefresh={loadBookings} showToast={showToast} />}
           {activeTab === "reviews"   && <ReviewsTab reviews={reviews} loading={loadingReviews} onRefresh={loadReviews} showToast={showToast} />}

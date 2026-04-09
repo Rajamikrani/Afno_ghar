@@ -10,7 +10,7 @@ import EditListing from './pages/EditListing';
 import AdminPanel from "./pages/AdminPanel";
 import ListYourHome from "./pages/ListYourHome";
 import UserProfile from './pages/UserProfile';
-import ProtectedRoute from "./utils/ProtectedRoute"; // 👈 add this
+import ProtectedRoute from "./utils/ProtectedRoute";
 
 function App() {
   return (
@@ -18,21 +18,21 @@ function App() {
       <Routes>
 
         {/* ───── Public ───── */}
-        <Route path="/"            element={<Home />} />
+        <Route path="/" element={<Home />} />
         <Route path="/listing/:id" element={<ListingDetail />} />
-        <Route path="/login"       element={<Login />} />
-        <Route path="/register"    element={<Register />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
         {/* ───── Any logged-in user ───── */}
         <Route element={<ProtectedRoute />}>
-          <Route path="/list-your-home"   element={<ListYourHome />} />
-          <Route path="/profile"          element={<UserProfile />} />
-          <Route path="/profile/:userId"  element={<UserProfile />} />
+          <Route path="/list-your-home" element={<ListYourHome />} />
+          <Route path="/profile" element={<UserProfile />} />
+          <Route path="/profile/:userId" element={<UserProfile />} />
         </Route>
 
         {/* ───── Host only ───── */}
         <Route element={<ProtectedRoute allowedRoles={["host"]} />}>
-          <Route path="/host-panel"       element={<HostPanel />} />
+          <Route path="/host-panel" element={<HostPanel />} />
           <Route path="/edit-listing/:id" element={<EditListing />} />
         </Route>
 

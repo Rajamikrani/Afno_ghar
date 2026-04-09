@@ -1,8 +1,8 @@
 import axios from "axios";
 
 const API = axios.create({
-  // baseURL: "http://localhost:8000/api/v1",
-baseURL: "https://afno-ghar.onrender.com/api/v1",
+  baseURL: "http://localhost:8000/api/v1",
+// baseURL: "https://afno-ghar.onrender.com/api/v1",
   withCredentials: true,
 });
 
@@ -23,16 +23,23 @@ API.interceptors.request.use(
 /* ══════════════════════════════════════════════════════════════════════
    RESPONSE INTERCEPTOR
 ══════════════════════════════════════════════════════════════════════ */
+// Public paths that should never trigger a login redirect
+const PUBLIC_PATHS = ["/", "/login", "/register"];
+const isPublicPath = (path) =>
+  PUBLIC_PATHS.includes(path) ||
+  path.startsWith("/listing/");   // /listing/:id is also public
+
 API.interceptors.response.use(
   (response) => response,
   (error) => {
-  if (error.response?.status === 401) {
-  localStorage.removeItem("user");
-  localStorage.removeItem("accessToken");
-  if (!window.location.pathname.includes("/login")) {
-    window.location.href = "/login";
-  }
-}
+    if (error.response?.status === 401) {
+      // Only redirect if the user is on a protected page
+      if (!isPublicPath(window.location.pathname)) {
+        localStorage.removeItem("user");
+        localStorage.removeItem("accessToken");
+        window.location.href = "/login";
+      }
+    }
     return Promise.reject(error);
   }
 );
