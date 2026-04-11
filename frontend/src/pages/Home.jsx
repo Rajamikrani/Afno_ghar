@@ -92,7 +92,6 @@ function ListingCard({ listing, wishlisted, onToggleWishlist, onClick, recommend
           </div>
         )}
       </div>
-
       <div className="mt-3 px-0.5">
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">

@@ -441,7 +441,6 @@ const getSimilarListings = asyncHandler(async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 const getRecommendations = asyncHandler(async (req, res) => {
     const userId = req.user._id;
-    console.log(userId)
     const { limit = 10 } = req.query;
 
     const userBookings = await Booking.find({ user: userId })
@@ -450,7 +449,7 @@ const getRecommendations = asyncHandler(async (req, res) => {
             populate: ["amenities", "category"],
         })
         .sort({ createdAt: -1 })
-        .limit(3);
+        .limit(5); // ← use more history for better signal
 
     if (!userBookings.length) {
         const fallback = await Listing.find()
@@ -465,40 +464,54 @@ const getRecommendations = asyncHandler(async (req, res) => {
             .json(new ApiResponse(200, fallback, "Popular listings"));
     }
 
-    const referenceListings = userBookings.map((b) => b.listing);
-    const referenceLocation =
-        referenceListings[0]?.location?.coordinates || null;
+    const referenceListings = userBookings
+        .map(b => b.listing)
+        .filter(Boolean); // guard against deleted listings
+
+    //  Average location across all reference listings
+    const validCoords = referenceListings
+        .map(l => l.location?.coordinates)
+        .filter(Boolean);
+
+    const referenceLocation = validCoords.length
+        ? [
+            validCoords.reduce((s, c) => s + c[0], 0) / validCoords.length,
+            validCoords.reduce((s, c) => s + c[1], 0) / validCoords.length,
+          ]
+        : null;
+
+    //  Average price across all reference listings
     const avgPrice =
-        referenceListings.reduce((sum, l) => sum + l.price, 0) /
+        referenceListings.reduce((sum, l) => sum + (l.price || 0), 0) /
         referenceListings.length;
 
     const allAmenities = await Amenity.find({ isActive: true });
 
     const candidates = await Listing.find({
-        _id: { $nin: referenceListings.map((l) => l._id) },
+        _id: { $nin: referenceListings.map(l => l._id) },
     })
         .populate("amenities")
         .populate("category")
         .populate("host", "fullName email avatar");
 
+    // Build averaged reference vector from ALL past bookings
+    const refVectors = referenceListings.map(l =>
+        listingToVector(l, allAmenities, referenceLocation, avgPrice)
+    );
+
+    const refVector = refVectors[0].map((_, i) =>
+        refVectors.reduce((sum, v) => sum + v[i], 0) / refVectors.length
+    );
+
     const recommendations = candidates
-        .map((listing) => {
+        .map(listing => {
             const vector = listingToVector(
                 listing,
                 allAmenities,
                 referenceLocation,
                 avgPrice
             );
-
-            const refVector = listingToVector(
-                referenceListings[0],
-                allAmenities,
-                referenceLocation,
-                avgPrice
-            );
-
             const similarity = calculateCosineSimilarity(refVector, vector);
-
             return { listing, similarityScore: similarity };
         })
         .sort((a, b) => b.similarityScore - a.similarityScore)
@@ -507,7 +520,7 @@ const getRecommendations = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new ApiResponse(
             200,
-            recommendations.map((item) => ({
+            recommendations.map(item => ({
                 ...item.listing.toObject(),
                 similarityScore: Number(item.similarityScore.toFixed(4)),
             })),
